@@ -15,7 +15,7 @@ TEST(DesignMatrixTest, InitColIndices) {
   size_t nrow = 20;
   size_t ncol = 10;
   auto df = nc::arange<int>(0, nrow * ncol).reshape(nrow, ncol);
-  auto design_matrix = DesignMatrix(df.astype<double>(), max_order);
+  auto design_matrix = DesignMatrix(df.astype<float>(), max_order);
 
   size_t col_count = 0;
   // Check order 1
@@ -99,7 +99,7 @@ TEST(DesignMatrixTest, getCol) {
   size_t nrow = 3;
   size_t ncol = 3;
   auto df = nc::arange<int>(0, 9).reshape(nrow, ncol);
-  auto design_matrix = DesignMatrix(df.astype<double>(), max_order);
+  auto design_matrix = DesignMatrix(df.astype<float>(), max_order);
   auto expected_DesignMatrix = nc::stack({_create_block(), _create_block(),_create_block(),
                              _create_block(), _create_block(),_create_block()},
                              nc::Axis::COL);
@@ -120,7 +120,7 @@ TEST(DesignMatrixTest, getBatch) {
   size_t nrow = 3;
   size_t ncol = 3;
   auto df = nc::arange<int>(0, 9).reshape(nrow, ncol);
-  auto design_matrix = DesignMatrix(df.astype<double>(), max_order);
+  auto design_matrix = DesignMatrix(df.astype<float>(), max_order);
   auto expected_DesignMatrix = nc::stack({_create_block(), _create_block(),_create_block(),
                              _create_block(), _create_block(),_create_block()},
                              nc::Axis::COL);

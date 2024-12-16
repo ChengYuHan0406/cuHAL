@@ -26,7 +26,7 @@ void DesignMatrix::_init_ColIndices(size_t order, size_t prev_idx,
   }
 }
 
-DesignMatrix::DesignMatrix(const nc::NdArray<double> &dataframe,
+DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
                            size_t max_order)
     : _dataframe(dataframe), _max_order(max_order) {
   auto df_shape = dataframe.shape();
@@ -44,7 +44,7 @@ DesignMatrix::DesignMatrix(const nc::NdArray<double> &dataframe,
 std::unique_ptr<nc::NdArray<bool>>
 DesignMatrix::getCol(const struct ColIndex &col_index, size_t start_idx,
                      size_t end_idx) const {
-  const nc::NdArray<double> &df = this->_dataframe;
+  const nc::NdArray<float> &df = this->_dataframe;
 
   // Check validality of col_index, return nullptr if invalid
   size_t interact_size = col_index.interaction.size();
@@ -65,7 +65,7 @@ DesignMatrix::getCol(const struct ColIndex &col_index, size_t start_idx,
   auto res = std::make_unique<nc::NdArray<bool>>(
       nc::ones<bool>(end_idx - start_idx, 1));
   for (auto c : col_index.interaction) {
-    double thres = df(col_index.sample_idx, c);
+    float thres = df(col_index.sample_idx, c);
     auto cur_col = df(nc::Slice(start_idx, end_idx), c);
     *res = nc::logical_and(*res, cur_col >= thres);
   }
@@ -75,7 +75,7 @@ DesignMatrix::getCol(const struct ColIndex &col_index, size_t start_idx,
 
 std::unique_ptr<nc::NdArray<bool>>
 DesignMatrix::getBatch(const size_t start_idx, const size_t end_idx) {
-  const nc::NdArray<double> &df = this->_dataframe;
+  const nc::NdArray<float> &df = this->_dataframe;
   size_t batch_size = end_idx - start_idx;
   size_t nrow = this->_nrow;
 
