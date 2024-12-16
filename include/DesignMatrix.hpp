@@ -18,6 +18,8 @@ public:
                                             size_t start_idx = 0,
                                             size_t end_idx = 0) const;
   std::unique_ptr<nc::NdArray<bool>> getBatch(const size_t start_idx, const size_t end_idx);
+  size_t get_nrow() const { return this->_nrow; }
+  size_t get_ncol() const { return this->_ncol; }
 
   std::vector<struct ColIndex> ColIndices;
 private:
