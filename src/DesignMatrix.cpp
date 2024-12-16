@@ -74,7 +74,7 @@ DesignMatrix::getCol(const struct ColIndex &col_index, size_t start_idx,
 }
 
 std::unique_ptr<nc::NdArray<bool>>
-DesignMatrix::getBatch(const size_t start_idx, const size_t end_idx) {
+DesignMatrix::getBatch(const size_t start_idx, const size_t end_idx) const {
   const nc::NdArray<float> &df = this->_dataframe;
   size_t batch_size = end_idx - start_idx;
   size_t nrow = this->_nrow;
