@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include "DesignMatrix.hpp"
+#include "BatchedDesignMatrix.hpp"
 
 nc::NdArray<bool> static _create_block() {
   nc::NdArray<bool> res =  {{true, false, false},
@@ -142,6 +143,40 @@ TEST(DesignMatrixTest, getBatch) {
   auto err_full = nc::sum(*batch_full - expected_DesignMatrix(nc::Slice(start_idx_full, end_idx_full),
                                                               nc::Slice(0, 18)))(0, 0);
   EXPECT_EQ(err_full, 0);
+}
+
+TEST(DesignMatrixTest, BatchedDesignMatrix) {
+  size_t max_order = 2;
+  size_t nrow = 3;
+  size_t ncol = 3;
+  auto df = nc::arange<int>(0, 9).reshape(nrow, ncol);
+  auto design_matrix = DesignMatrix(df.astype<float>(), max_order);
+  auto expected_DesignMatrix = nc::stack({_create_block(), _create_block(),_create_block(),
+                             _create_block(), _create_block(),_create_block()},
+                             nc::Axis::COL);
+
+  // batch_size = 1
+  auto batched_design_matrix_1 = BatchedDesignMatrix(design_matrix, 1);
+  EXPECT_EQ(batched_design_matrix_1.size(), 3);
+  int err1_0 = nc::sum(*batched_design_matrix_1.get(0) - expected_DesignMatrix(0, nc::Slice(0, 18)))(0, 0);
+  int err1_1 = nc::sum(*batched_design_matrix_1.get(1) - expected_DesignMatrix(1, nc::Slice(0, 18)))(0, 0);
+  int err1_2 = nc::sum(*batched_design_matrix_1.get(2) - expected_DesignMatrix(2, nc::Slice(0, 18)))(0, 0);
+  EXPECT_EQ(err1_0, 0);
+  EXPECT_EQ(err1_1, 0);
+  EXPECT_EQ(err1_2, 0);
+
+  // batch_size = 2
+  auto batched_design_matrix_2 = BatchedDesignMatrix(design_matrix, 2);
+  EXPECT_EQ(batched_design_matrix_2.size(), 2);
+  int err2_0 = nc::sum(*batched_design_matrix_2.get(0) - expected_DesignMatrix(nc::Slice(0, 2), nc::Slice(0, 18)))(0, 0);
+  int err2_1 = nc::sum(*batched_design_matrix_2.get(1) - expected_DesignMatrix(2, nc::Slice(0, 18)))(0, 0);
+  EXPECT_EQ(err2_0, 0);
+  EXPECT_EQ(err2_1, 0);
+
+  // batch_size = 3
+  auto batched_design_matrix_3 = BatchedDesignMatrix(design_matrix, 3);
+  EXPECT_EQ(batched_design_matrix_3.size(), 1);
+  int err3 = nc::sum(*batched_design_matrix_3.get(0) - expected_DesignMatrix)(0, 0);
 }
 
 int main(int argc, char **argv) {
