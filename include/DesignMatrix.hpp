@@ -11,6 +11,9 @@ struct ColIndex {
 class DesignMatrix {
 public:
   DesignMatrix(const nc::NdArray<double>& dataframe, size_t max_order);
+  DesignMatrix(const DesignMatrix& other) = default;
+  DesignMatrix(DesignMatrix&& other) = default;
+
   std::unique_ptr<nc::NdArray<bool>> getCol(const struct ColIndex& col_index,
                                             size_t start_idx = 0,
                                             size_t end_idx = 0) const;
