@@ -1,0 +1,7 @@
+build/
+.cache/
+__pycache__/
+.pytest_cache/
+.xmake/
+compile_commands.json
+pyright_config.json
