@@ -1,14 +1,9 @@
 #include "DesignMatrix.hpp"
 #include "NumCpp.hpp"
 #include "omp.h"
-#include <NumCpp/Functions/arange.hpp>
 #include <cfloat>
 #include <cmath>
 #include <memory>
-
-size_t static _comb(size_t n, size_t k);
-size_t static _design_matrix_col_size(size_t nrow, size_t ncol,
-                                      size_t max_order, float sample_ratio);
 
 void DesignMatrix::_init_ColIndices(size_t order, size_t prev_idx,
                                     std::vector<size_t> &interact) {
@@ -36,7 +31,6 @@ DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
   size_t df_nrow = df_shape.rows;
   size_t df_ncol = df_shape.cols;
   this->_nrow = df_nrow;
-  this->_ncol = _design_matrix_col_size(df_nrow, df_ncol, max_order, sample_ratio);
 
   if (sample_ratio == 1) {
     this->_sampled_row = nc::arange<int>(0, this->_nrow).reshape(1, this->_nrow);
@@ -48,6 +42,8 @@ DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
     std::vector<size_t> interact;
     this->_init_ColIndices(o, -1, interact);
   }
+
+  this->_ncol = this->ColIndices.size();  
 };
 
 std::unique_ptr<nc::NdArray<bool>>
@@ -118,30 +114,4 @@ DesignMatrix::getBatch(const size_t start_idx, const size_t end_idx) const {
 
   auto res = std::make_unique<nc::NdArray<bool>>(nc::stack(vec_partial_res, nc::Axis::COL));
   return res;
-}
-
-/********************************* Helper Functions ***************************************/
-
-size_t static _comb(size_t n, size_t k) {
-  size_t numerator = 1;
-  size_t denominator = 1;
-
-  while (k > 0) {
-    numerator *= n;
-    denominator *= k;
-    n--, k--;
-  }
-
-  return numerator / denominator;
-}
-
-size_t static _design_matrix_col_size(size_t nrow, size_t ncol,
-                                      size_t max_order, float sample_ratio) {
-  size_t col_size = 0;
-  for (int i = 1; i <= max_order; i++) {
-    col_size += _comb(ncol, i);
-  }
-  col_size *= std::floor(nrow * sample_ratio);
-
-  return col_size;
 }
