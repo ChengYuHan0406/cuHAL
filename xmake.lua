@@ -1,7 +1,7 @@
 add_includedirs("./include/")
 add_requires("openmp")
 add_requires("gtest")
-add_cxxflags("-g")
+add_cxxflags("-O3 -ftree-vectorize -fstrict-aliasing -march=native -mtune=native -fopt-info-vec-optimized")
 
 target("DesignMatrix")
   set_kind("shared")
@@ -19,4 +19,3 @@ target("test_DesignMatrix")
   add_packages("gtest")
   add_deps("DesignMatrix")
   add_deps("BatchedDesignMatrix")
-  

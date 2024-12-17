@@ -1,9 +1,14 @@
 #include "DesignMatrix.hpp"
 #include "NumCpp.hpp"
 #include "omp.h"
+#include <NumCpp/Functions/empty.hpp>
 #include <cfloat>
 #include <cmath>
+#include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <sys/types.h>
+#include <unordered_set>
 
 void DesignMatrix::_init_ColIndices(size_t order, size_t prev_idx,
                                     std::vector<size_t> &interact) {
@@ -46,6 +51,58 @@ DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
   this->_ncol = this->ColIndices.size();  
 };
 
+std::unique_ptr<nc::NdArray<bool>> 
+DesignMatrix::getRegion(uint64_t row_start, uint64_t row_end,
+                        uint64_t col_start, uint64_t col_end) const {
+  
+  if (row_end > this->_nrow || col_end > this->_ncol) {
+    throw std::out_of_range("Index out of range");
+  }
+
+  auto& df = this->_dataframe;
+  const uint64_t num_threads = std::min(omp_get_max_threads(), static_cast<int>(this->_ncol));
+  const uint64_t row_size = row_end - row_start;
+  const uint64_t col_size = col_end - col_start;
+  const uint64_t num_elements = row_size * col_size; 
+  uint64_t block_size = std::ceil(num_elements / (float)num_threads);
+
+  /* Since NumCpp uses uint32_t for array size, 
+   * ensure that `row_size * col_size` does not exceed the uint32_t limit. */
+  if (row_size * col_size >= std::numeric_limits<uint32_t>::max()) {
+    throw std::out_of_range("Size exceeds uint32_t limit");
+  }
+
+  auto res = std::make_unique<nc::NdArray<bool>>(row_size, col_size);
+
+  #pragma omp parallel num_threads(num_threads)
+  {
+    uint64_t thread_id = omp_get_thread_num();
+    uint64_t idx_start = thread_id * block_size;
+    uint64_t idx_end = std::min((thread_id + 1) * block_size, num_elements);
+
+    for (int64_t i = idx_start; i < (int64_t)idx_end; i++) {
+      uint64_t local_row_idx = i / col_size;
+      uint64_t local_col_idx = i % col_size;
+      auto global_row_idx = row_start + local_row_idx;
+      auto global_col_idx = col_start + local_col_idx; 
+      auto& col_index = this->ColIndices[global_col_idx]; 
+      auto& interaction = col_index.interaction;
+      auto sample_idx = col_index.sample_idx;
+
+      bool cur_elem = true; 
+      for (auto& c : interaction) {
+        float thres = df(sample_idx, c);
+        float val = df(global_row_idx, c);
+        cur_elem &= (val >= thres);
+      }
+
+      (*res)(local_row_idx, local_col_idx) = cur_elem; 
+    }
+  }
+
+  return res;
+}
+
 std::unique_ptr<nc::NdArray<bool>>
 DesignMatrix::getCol(const struct ColIndex &col_index, size_t start_idx,
                      size_t end_idx) const {
@@ -80,38 +137,5 @@ DesignMatrix::getCol(const struct ColIndex &col_index, size_t start_idx,
 
 std::unique_ptr<nc::NdArray<bool>>
 DesignMatrix::getBatch(const size_t start_idx, const size_t end_idx) const {
-  const nc::NdArray<float> &df = this->_dataframe;
-  size_t batch_size = end_idx - start_idx;
-  size_t nrow = this->_nrow;
-
-  bool valid_idx = (0 <= start_idx) & (start_idx < end_idx) & (end_idx <= nrow);
-  if (!valid_idx) {
-    return nullptr;
-  }
-
-  int num_threads = std::min(omp_get_max_threads(), static_cast<int>(this->_ncol));
-  std::vector<nc::NdArray<bool>> vec_partial_res(num_threads);
-
-  #pragma omp parallel num_threads(num_threads)
-  {
-    size_t ncol = this->_ncol;
-    size_t block_size = std::floor(ncol / (num_threads - 1));
-
-    int thread_id = omp_get_thread_num();
-
-    int col_start = thread_id * block_size;
-    int col_end = std::min((thread_id + 1) * block_size, ncol);
-
-    std::vector<nc::NdArray<bool>> partial_res;
-
-    for (int c = col_start; c < col_end; c++) {
-      auto cur_col = this->getCol(this->ColIndices[c], start_idx, end_idx);
-      partial_res.push_back(std::move(*cur_col));
-    }
-
-    vec_partial_res[thread_id] = nc::stack(partial_res, nc::Axis::COL);
-  }
-
-  auto res = std::make_unique<nc::NdArray<bool>>(nc::stack(vec_partial_res, nc::Axis::COL));
-  return res;
+  return getRegion(start_idx, end_idx, 0, this->_ncol);
 }

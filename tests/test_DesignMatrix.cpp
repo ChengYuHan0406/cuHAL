@@ -1,5 +1,8 @@
 #include "NumCpp.hpp"
+#include <NumCpp/NdArray/NdArrayCore.hpp>
+#include <NumCpp/Random/randN.hpp>
 #include <gtest/gtest.h>
+#include <iostream>
 #include <memory>
 #include "DesignMatrix.hpp"
 #include "BatchedDesignMatrix.hpp"
@@ -177,6 +180,42 @@ TEST(DesignMatrixTest, BatchedDesignMatrix) {
   auto batched_design_matrix_3 = BatchedDesignMatrix(design_matrix, 3);
   EXPECT_EQ(batched_design_matrix_3.size(), 1);
   int err3 = nc::sum(*batched_design_matrix_3.get(0) - expected_DesignMatrix)(0, 0);
+}
+
+TEST(DesignMatrixTest, getRegion) {
+  size_t max_order = 3;
+  const size_t nrow = 50;
+  const size_t ncol = 10; 
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+
+  auto row_start = 10, row_end = 20;
+  auto col_start = 5, col_end = 8;
+  std::unique_ptr<nc::NdArray<bool>> realized_region = design_matrix.getRegion(row_start, row_end, col_start, col_end);
+
+  auto row_size = row_end - row_start;
+  auto col_size = col_end - col_start;
+
+  for (int i = 0; i < row_size; i++) {
+    for (int j = 0; j < col_size; j++) {
+      bool cur_val = (*realized_region)(i, j);
+      
+      auto global_row_idx = row_start + i;
+      auto global_col_idx = col_start + j;
+
+      auto& col_index = design_matrix.ColIndices[global_col_idx];
+      auto& interact = col_index.interaction;
+      auto sample_idx = col_index.sample_idx;
+
+      bool expected = true;
+      for (auto v : interact) {
+        expected &= (df(global_row_idx, v) >= df(sample_idx, v));
+      }
+
+      EXPECT_EQ(cur_val, expected);
+    }
+  }
+  
 }
 
 int main(int argc, char **argv) {
