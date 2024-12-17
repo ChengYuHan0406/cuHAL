@@ -1,19 +1,22 @@
 #include "DesignMatrix.hpp"
 #include "NumCpp.hpp"
 #include "omp.h"
+#include <NumCpp/Functions/arange.hpp>
 #include <cfloat>
 #include <cmath>
 #include <memory>
 
 size_t static _comb(size_t n, size_t k);
 size_t static _design_matrix_col_size(size_t nrow, size_t ncol,
-                                      size_t max_order);
+                                      size_t max_order, float sample_ratio);
 
 void DesignMatrix::_init_ColIndices(size_t order, size_t prev_idx,
                                     std::vector<size_t> &interact) {
   if (order == 0) {
-    for (int i = 0; i < this->_nrow; i++) {
-      this->ColIndices.push_back(ColIndex{interact, static_cast<size_t>(i)});
+    auto num_sampled_row = this->_sampled_row.shape().cols;
+    for (int i = 0; i < num_sampled_row; i++) {
+      int row_idx = this->_sampled_row(0, i);
+      this->ColIndices.push_back(ColIndex{interact, static_cast<size_t>(row_idx)});
     }
     return;
   }
@@ -27,14 +30,20 @@ void DesignMatrix::_init_ColIndices(size_t order, size_t prev_idx,
 }
 
 DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
-                           size_t max_order)
+                           size_t max_order, float sample_ratio)
     : _dataframe(dataframe), _max_order(max_order) {
   auto df_shape = dataframe.shape();
   size_t df_nrow = df_shape.rows;
   size_t df_ncol = df_shape.cols;
   this->_nrow = df_nrow;
-  this->_ncol = _design_matrix_col_size(df_nrow, df_ncol, max_order);
+  this->_ncol = _design_matrix_col_size(df_nrow, df_ncol, max_order, sample_ratio);
 
+  if (sample_ratio == 1) {
+    this->_sampled_row = nc::arange<int>(0, this->_nrow).reshape(1, this->_nrow);
+  } else {
+    uint32_t num_sampled_row = std::floor(this->_nrow * sample_ratio);
+    this->_sampled_row = nc::random::randInt<int>({1, num_sampled_row}, 0, this->_nrow);
+  }
   for (int o = 1; o <= max_order; o++) {
     std::vector<size_t> interact;
     this->_init_ColIndices(o, -1, interact);
@@ -87,7 +96,7 @@ DesignMatrix::getBatch(const size_t start_idx, const size_t end_idx) const {
   int num_threads = std::min(omp_get_max_threads(), static_cast<int>(this->_ncol));
   std::vector<nc::NdArray<bool>> vec_partial_res(num_threads);
 
-#pragma omp parallel num_threads(num_threads)
+  #pragma omp parallel num_threads(num_threads)
   {
     size_t ncol = this->_ncol;
     size_t block_size = std::floor(ncol / (num_threads - 1));
@@ -127,12 +136,12 @@ size_t static _comb(size_t n, size_t k) {
 }
 
 size_t static _design_matrix_col_size(size_t nrow, size_t ncol,
-                                      size_t max_order) {
+                                      size_t max_order, float sample_ratio) {
   size_t col_size = 0;
   for (int i = 1; i <= max_order; i++) {
     col_size += _comb(ncol, i);
   }
-  col_size *= nrow;
+  col_size *= std::floor(nrow * sample_ratio);
 
   return col_size;
 }

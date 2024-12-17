@@ -10,7 +10,7 @@ struct ColIndex {
 
 class DesignMatrix {
 public:
-  DesignMatrix(const nc::NdArray<float>& dataframe, size_t max_order);
+  DesignMatrix(const nc::NdArray<float>& dataframe, size_t max_order, float sample_ratio = 1);
   DesignMatrix(const DesignMatrix& other) = default;
   DesignMatrix(DesignMatrix&& other) = default;
 
@@ -27,5 +27,6 @@ private:
   size_t _max_order;
   size_t _nrow;
   size_t _ncol;
+  nc::NdArray<int> _sampled_row;
   void _init_ColIndices(size_t order, size_t prev_idx, std::vector<size_t>& interact);
 };
