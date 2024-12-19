@@ -45,6 +45,9 @@ void BinSpMat::translate() {
       cur_col_indices.end(),
       this->col_indices.begin() + this->row_ptrs[r]
     );
+
+    // Release `cur_col_indices`
+    std::vector<size_t>().swap(cur_col_indices);
   }
 
   this->_translated = true;
