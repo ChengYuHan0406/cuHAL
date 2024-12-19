@@ -2,11 +2,11 @@
 #include "NumCpp.hpp"
 #include <gtest/gtest.h>
 
-TEST(BinSpMV, RandomBinMatrix) {
+TEST(BinSpMVTest, RandomBinMatrix) {
   const size_t nrow = 50;
   const size_t ncol = 20;
   auto randBinMat = nc::random::randInt<int>({nrow, ncol}, 0, 2).astype<bool>();
-  auto binspmat = BinSpMat(nrow);
+  auto binspmat = BinSpMat(nrow, ncol);
 
  /* Fills the `binspmat` at positions where `randBinMat` is true */
   for (int i = 0; i < nrow; i++) {
@@ -37,6 +37,25 @@ TEST(BinSpMV, RandomBinMatrix) {
   }
 
  /* If both (1) and (2) hold, then `binspmat` and `randBinMat` must be identical */
+}
+
+TEST(BinSpMVTest, full) {
+  const size_t nrow = 50;
+  const size_t ncol = 20;
+  auto randBinMat = nc::random::randInt<int>({nrow, ncol}, 0, 2).astype<bool>();
+  auto binspmat = BinSpMat(nrow, ncol);
+
+  for (int i = 0; i < nrow; i++) {
+    for (int j = 0; j < ncol; j++) {
+      if (randBinMat(i, j) == true) {
+        binspmat.fill(i, j);
+      }
+    }
+  }
+
+  binspmat.translate();
+
+  EXPECT_EQ(nc::sum(*binspmat.full() - randBinMat)(0, 0), 0);
 }
 
 int main(int argc, char **argv) {

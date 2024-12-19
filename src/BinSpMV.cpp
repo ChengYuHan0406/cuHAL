@@ -1,5 +1,7 @@
 #include "BinSpMV.hpp"
 #include "omp.h"
+#include <NumCpp/Functions/zeros.hpp>
+#include <memory>
 
 /*
  *  This function is designed for parallel processing across rows.
@@ -46,4 +48,18 @@ void BinSpMat::translate() {
   }
 
   this->_translated = true;
+}
+
+std::unique_ptr<nc::NdArray<bool>> BinSpMat::full() const {
+  auto res = std::make_unique<nc::NdArray<bool>>(nc::zeros<bool>(this->_nrow, this->_ncol));
+
+  #pragma omp parallel for
+  for (int r = 0; r < this->_nrow; r++) {
+    for (int j = this->row_ptrs[r]; j < this->row_ptrs[r + 1]; j++) {
+      auto c = this->col_indices[j];
+      (*res)(r, c) = true;
+    }
+  }
+
+  return res;
 }

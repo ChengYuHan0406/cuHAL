@@ -6,6 +6,7 @@ add_cxxflags("-O3 -ftree-vectorize -fstrict-aliasing -march=native -mtune=native
 target("DesignMatrix")
   set_kind("shared")
   add_files("./src/DesignMatrix.cpp")
+  add_deps("BinSpMV")
   add_packages("openmp")
 
 target("BatchedDesignMatrix")
@@ -18,6 +19,7 @@ target("test_DesignMatrix")
   add_files("./tests/test_DesignMatrix.cpp")
   add_packages("gtest")
   add_deps("DesignMatrix")
+  add_deps("BinSpMV")
   add_deps("BatchedDesignMatrix")
 
 target("BinSpMV")

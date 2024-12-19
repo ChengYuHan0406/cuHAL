@@ -1,13 +1,19 @@
 #pragma once
+#include <NumCpp/NdArray/NdArrayCore.hpp>
+#include <memory>
 #include <vector>
+#include "NumCpp.hpp"
 
 class BinSpMat {
 public:
-  BinSpMat(const size_t nrow) : _row_info(std::vector<size_t>(nrow + 1, 0)),
-                                _col_info(nrow, std::vector<size_t>()),
-                                _translated(false) {};
+  BinSpMat(const size_t nrow, const size_t ncol) : _nrow(nrow),
+                                                   _ncol(ncol),
+                                                   _row_info(std::vector<size_t>(nrow + 1, 0)),
+                                                   _col_info(nrow, std::vector<size_t>()),
+                                                   _translated(false) {};
   void fill(const size_t row_idx, const size_t col_idx);
   void translate();
+  std::unique_ptr<nc::NdArray<bool>> full() const;
 
   /* CSR format */
   std::vector<size_t> row_ptrs;
@@ -17,6 +23,8 @@ public:
   size_t nnz;
 
 private:
+  size_t _nrow;
+  size_t _ncol;
 /*
  * Tracks the information needed for the `translate` operation
  * during the execution of the `fill` function.

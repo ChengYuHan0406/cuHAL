@@ -1,3 +1,4 @@
+#include "BinSpMV.hpp"
 #include "DesignMatrix.hpp"
 #include "NumCpp.hpp"
 #include <cmath>
@@ -8,7 +9,7 @@ public:
   BatchedDesignMatrix(const DesignMatrix& design_matrix,
                       size_t batch_size) : _design_matrix(design_matrix),
                                            _batch_size(batch_size) {}
-  std::unique_ptr<nc::NdArray<bool>> get(size_t index) const; 
+  std::unique_ptr<BinSpMat> get(size_t index) const; 
   size_t size() const;
 
 private:

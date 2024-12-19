@@ -1,8 +1,9 @@
 #include "BatchedDesignMatrix.hpp"
+#include "BinSpMV.hpp"
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
 
-std::unique_ptr<nc::NdArray<bool>> BatchedDesignMatrix::get(size_t index) const {
+std::unique_ptr<BinSpMat> BatchedDesignMatrix::get(size_t index) const {
   auto nrow = this->_design_matrix.get_nrow();
   auto start_idx = index * this->_batch_size;
   auto end_idx = std::min((index + 1) * this->_batch_size, nrow);

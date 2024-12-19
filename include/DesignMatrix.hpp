@@ -1,5 +1,6 @@
 #pragma once
 #include "NumCpp.hpp"
+#include "BinSpMV.hpp"
 #include <memory>
 #include <vector>
 
@@ -21,7 +22,8 @@ public:
   std::unique_ptr<nc::NdArray<bool>> getCol(const struct ColIndex& col_index,
                                             size_t start_idx = 0,
                                             size_t end_idx = 0) const;
-  std::unique_ptr<nc::NdArray<bool>> getBatch(const size_t start_idx, const size_t end_idx) const;
+  //std::unique_ptr<nc::NdArray<bool>> getBatch(const size_t start_idx, const size_t end_idx) const;
+  std::unique_ptr<BinSpMat> getBatch(const size_t start_idx, const size_t end_idx) const;
   size_t get_nrow() const { return this->_nrow; }
   size_t get_ncol() const { return this->_ncol; }
 

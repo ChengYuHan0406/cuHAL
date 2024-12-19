@@ -8,7 +8,6 @@
 #include <memory>
 #include <stdexcept>
 #include <sys/types.h>
-#include <unordered_set>
 
 void DesignMatrix::_init_ColIndices(size_t order, size_t prev_idx,
                                     std::vector<size_t> &interact) {
@@ -135,7 +134,50 @@ DesignMatrix::getCol(const struct ColIndex &col_index, size_t start_idx,
   return res;
 }
 
-std::unique_ptr<nc::NdArray<bool>>
-DesignMatrix::getBatch(const size_t start_idx, const size_t end_idx) const {
-  return getRegion(start_idx, end_idx, 0, this->_ncol);
+std::unique_ptr<BinSpMat> DesignMatrix::getBatch(const size_t start_idx, const size_t end_idx) const {
+  
+  if (end_idx > this->_nrow || start_idx > end_idx) {
+    throw std::out_of_range("Index out of range");
+  }
+
+  auto& df = this->_dataframe;
+
+  const size_t num_threads = omp_get_max_threads();
+  const size_t batch_size = end_idx - start_idx;
+  size_t block_size = std::ceil(batch_size / (float)num_threads);
+
+  auto res = std::make_unique<BinSpMat>(batch_size, this->_ncol);
+
+  #pragma omp parallel
+  {
+    size_t thread_id = omp_get_thread_num();
+    size_t row_start = start_idx + thread_id * block_size;
+    size_t row_end = start_idx + std::min((thread_id + 1) * block_size, batch_size);
+
+    for (int row_idx = row_start; row_idx < row_end; row_idx++) {
+      for (int col_idx = 0; col_idx < this->_ncol; col_idx++) {
+        auto& col_index = this->ColIndices[col_idx];
+        auto& interaction = col_index.interaction;
+        auto sample_idx = col_index.sample_idx;
+
+        bool cur_elem = true; 
+        for (auto& c : interaction) {
+          float thres = df(sample_idx, c);
+          float val = df(row_idx, c);
+          cur_elem &= (val >= thres);
+        }
+
+        if (cur_elem) {
+          auto local_row_idx = row_idx - start_idx;
+          res->fill(local_row_idx, col_idx);
+        }
+      }
+    }
+  }
+
+  res->translate();
+
+  return res;
 }
+
+
