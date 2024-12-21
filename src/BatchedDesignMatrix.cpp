@@ -14,7 +14,7 @@ std::unique_ptr<BinSpMat> BatchedDesignMatrix::get(size_t index) const {
   return this->_design_matrix.getBatch(start_idx, end_idx);
 } 
 
-size_t BatchedDesignMatrix::size() const {
+size_t BatchedDesignMatrix::len() const {
   auto nrow = this->_design_matrix.get_nrow();
   return std::floor((nrow + this->_batch_size - 1) / this->_batch_size);
 } 

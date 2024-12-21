@@ -1,6 +1,6 @@
 #include "BinSpMV.hpp"
 #include "omp.h"
-#include <NumCpp/Functions/zeros.hpp>
+#include <NumCpp.hpp>
 #include <memory>
 
 /*

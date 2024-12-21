@@ -1,6 +1,6 @@
 #include "BinSpMV.hpp"
 #include "DesignMatrix.hpp"
-#include "NumCpp.hpp"
+#include <NumCpp.hpp>
 #include <cmath>
 #include <memory>
 
@@ -10,7 +10,10 @@ public:
                       size_t batch_size) : _design_matrix(design_matrix),
                                            _batch_size(batch_size) {}
   std::unique_ptr<BinSpMat> get(size_t index) const; 
-  size_t size() const;
+  size_t len() const;
+  size_t batch_size() const {return _batch_size;}
+  size_t nrow() const {return this->_design_matrix.get_nrow();}
+  size_t ncol() const {return this->_design_matrix.get_ncol();}
 
 private:
   const DesignMatrix& _design_matrix;

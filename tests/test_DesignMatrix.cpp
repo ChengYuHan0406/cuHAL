@@ -161,7 +161,7 @@ TEST(DesignMatrixTest, BatchedDesignMatrix) {
 
   // batch_size = 1
   auto batched_design_matrix_1 = BatchedDesignMatrix(design_matrix, 1);
-  EXPECT_EQ(batched_design_matrix_1.size(), 3);
+  EXPECT_EQ(batched_design_matrix_1.len(), 3);
   int err1_0 = nc::sum(*batched_design_matrix_1.get(0)->full() - expected_DesignMatrix(0, nc::Slice(0, 18)))(0, 0);
   int err1_1 = nc::sum(*batched_design_matrix_1.get(1)->full() - expected_DesignMatrix(1, nc::Slice(0, 18)))(0, 0);
   int err1_2 = nc::sum(*batched_design_matrix_1.get(2)->full() - expected_DesignMatrix(2, nc::Slice(0, 18)))(0, 0);
@@ -171,7 +171,7 @@ TEST(DesignMatrixTest, BatchedDesignMatrix) {
 
   // batch_size = 2
   auto batched_design_matrix_2 = BatchedDesignMatrix(design_matrix, 2);
-  EXPECT_EQ(batched_design_matrix_2.size(), 2);
+  EXPECT_EQ(batched_design_matrix_2.len(), 2);
   int err2_0 = nc::sum(*batched_design_matrix_2.get(0)->full() - expected_DesignMatrix(nc::Slice(0, 2), nc::Slice(0, 18)))(0, 0);
   int err2_1 = nc::sum(*batched_design_matrix_2.get(1)->full() - expected_DesignMatrix(2, nc::Slice(0, 18)))(0, 0);
   EXPECT_EQ(err2_0, 0);
@@ -179,7 +179,7 @@ TEST(DesignMatrixTest, BatchedDesignMatrix) {
 
   // batch_size = 3
   auto batched_design_matrix_3 = BatchedDesignMatrix(design_matrix, 3);
-  EXPECT_EQ(batched_design_matrix_3.size(), 1);
+  EXPECT_EQ(batched_design_matrix_3.len(), 1);
   int err3 = nc::sum(*batched_design_matrix_3.get(0)->full() - expected_DesignMatrix)(0, 0);
 }
 

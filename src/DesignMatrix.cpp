@@ -1,7 +1,6 @@
 #include "DesignMatrix.hpp"
-#include "NumCpp.hpp"
+#include <NumCpp.hpp>
 #include "omp.h"
-#include <NumCpp/Functions/empty.hpp>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>

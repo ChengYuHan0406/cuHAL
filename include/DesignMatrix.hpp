@@ -1,5 +1,5 @@
 #pragma once
-#include "NumCpp.hpp"
+#include <NumCpp.hpp>
 #include "BinSpMV.hpp"
 #include <memory>
 #include <vector>
