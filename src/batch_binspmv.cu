@@ -34,7 +34,7 @@ __global__ void binspmv_kernel(int num_rows, size_t *row_ptrs, size_t *col_indic
   }
 }
 
-std::unique_ptr<nc::NdArray<float>> batch_binspmv(const BatchedDesignMatrix& A, const nc::NdArray<float>& x) {
+std::unique_ptr<nc::NdArray<float>> batch_binspmv(BatchedDesignMatrix& A, const nc::NdArray<float>& x) {
   assert(x.shape().cols == 1);
   size_t num_batchs = A.len();
   size_t batch_size = A.batch_size();
@@ -64,6 +64,10 @@ std::unique_ptr<nc::NdArray<float>> batch_binspmv(const BatchedDesignMatrix& A, 
     cudaMemcpy(x_d, x.data(), size_x, cudaMemcpyHostToDevice);
 
     binspmv_kernel<<<num_rows, WARPSIZE>>>(num_rows, row_ptrs_d, col_indices_d, x_d, y_d);
+
+    if (batch_idx + 1 < num_batchs) {
+      A.prefetch(batch_idx + 1);
+    }
 
     cudaDeviceSynchronize();
     auto batch_start = batch_idx * batch_size;

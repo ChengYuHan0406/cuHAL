@@ -1,13 +1,12 @@
 #include "DesignMatrix.hpp"
-#include "NumCpp.hpp"
-#include <NumCpp/Functions/norm.hpp>
+#include <NumCpp.hpp>
 #include <gtest/gtest.h>
 #include <memory>
 #include "BatchedDesignMatrix.hpp"
 #include "DesignMatrix.hpp"
 #include "BinSpMV.hpp"
 
-std::unique_ptr<nc::NdArray<float>> batch_binspmv(const BatchedDesignMatrix& A, const nc::NdArray<float>& x); 
+std::unique_ptr<nc::NdArray<float>> batch_binspmv(BatchedDesignMatrix& A, const nc::NdArray<float>& x); 
 
 TEST(batchbinspmvTest, RandomMV) {
   const size_t df_ncol = 10;

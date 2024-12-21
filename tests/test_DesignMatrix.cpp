@@ -1,6 +1,4 @@
-#include "NumCpp.hpp"
-#include <NumCpp/NdArray/NdArrayCore.hpp>
-#include <NumCpp/Random/randN.hpp>
+#include <NumCpp.hpp>
 #include <gtest/gtest.h>
 #include <iostream>
 #include <memory>
@@ -147,6 +145,38 @@ TEST(DesignMatrixTest, getBatch) {
   auto err_full = nc::sum(*batch_full->full() - expected_DesignMatrix(nc::Slice(start_idx_full, end_idx_full),
                                                               nc::Slice(0, 18)))(0, 0);
   EXPECT_EQ(err_full, 0);
+}
+
+TEST(DesignMatrixTest, RandomDfgetBatch) {
+  size_t max_order = 3;
+  const size_t nrow = 100;
+  const size_t ncol = 20;
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+
+  auto row_start = 10, row_end = 50;
+  auto realized_batch = design_matrix.getBatch(row_start, row_end)->full();
+
+  auto row_size = row_end - row_start;
+
+  for (int i = 0; i < row_size; i++) {
+    for (int j = 0; j < design_matrix.get_ncol(); j++) {
+      bool cur_val = (*realized_batch)(i, j);
+      
+      auto global_row_idx = row_start + i;
+
+      auto& col_index = design_matrix.ColIndices[j];
+      auto& interact = col_index.interaction;
+      auto sample_idx = col_index.sample_idx;
+
+      bool expected = true;
+      for (auto v : interact) {
+        expected &= (df(global_row_idx, v) >= df(sample_idx, v));
+      }
+
+      EXPECT_EQ(cur_val, expected);
+    }
+  }
 }
 
 TEST(DesignMatrixTest, BatchedDesignMatrix) {

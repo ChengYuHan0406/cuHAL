@@ -10,11 +10,16 @@ public:
                                                    _row_info(std::vector<size_t>(nrow + 1, 0)),
                                                    _col_info(nrow, std::vector<size_t>()),
                                                    _translated(false) {};
+
+
+  BinSpMat(const BinSpMat& other) = default;
+  BinSpMat(BinSpMat&& other) = default;
+
   void fill(const size_t row_idx, const size_t col_idx);
   void translate();
   std::unique_ptr<nc::NdArray<bool>> full() const;
-  size_t nrow() const {return this->_nrow;}
-  size_t ncol() const {return this->_ncol;}
+  size_t nrow() const { return this->_nrow; }
+  size_t ncol() const { return this->_ncol; }
 
   /* CSR format */
   std::vector<size_t> row_ptrs;
