@@ -1,4 +1,6 @@
 #include <NumCpp.hpp>
+#include <NumCpp/Functions/ones.hpp>
+#include <NumCpp/Functions/sum.hpp>
 #include <gtest/gtest.h>
 #include <iostream>
 #include <memory>
@@ -175,6 +177,55 @@ TEST(DesignMatrixTest, RandomDfgetBatch) {
       }
 
       EXPECT_EQ(cur_val, expected);
+    }
+  }
+}
+
+TEST(DesignMatrixTest, getBatchPred) {
+  size_t max_order = 2;
+  size_t nrow = 3;
+  size_t ncol = 3;
+  auto df = nc::arange<int>(0, 9).reshape(nrow, ncol);
+  auto design_matrix = DesignMatrix(df.astype<float>(), max_order);
+
+  auto test_df_1 = nc::arange<int>(9, 18).reshape(nrow, ncol);
+  auto pred_design_matrix_1 = design_matrix.getPredDesignMatrix(test_df_1.astype<float>());
+  auto res_1 = pred_design_matrix_1->getBatch(0, nrow)->full();
+  auto expected_1 = nc::ones<bool>({3, (uint32_t)design_matrix.get_ncol()});
+  EXPECT_EQ(nc::sum(*res_1 - expected_1)(0, 0), 0);
+
+  auto test_df_2 = nc::arange<int>(-9, 0).reshape(nrow, ncol);
+  auto pred_design_matrix_2 = design_matrix.getPredDesignMatrix(test_df_2.astype<float>());
+  auto res_2 = pred_design_matrix_2->getBatch(0, nrow)->full();
+  auto expected_2 = nc::zeros<bool>({3, (uint32_t)design_matrix.get_ncol()});
+  EXPECT_EQ(nc::sum(*res_2 - expected_2)(0, 0), 0);
+}
+
+TEST(DesignMatrixTest, RandomDfgetBatchPred) {
+  size_t max_order = 3;
+  const size_t nrow = 100;
+  const size_t test_nrow = 10;
+  const size_t ncol = 20;
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto test_df = nc::random::randN<float>({test_nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+  auto pred_design_matrix = design_matrix.getPredDesignMatrix(test_df);
+  auto realized_pred_design_matrix = pred_design_matrix->getBatch(0, test_nrow)->full();
+
+  for (int i = 0; i < pred_design_matrix->get_nrow(); i++) {
+    for (int j = 0; j < pred_design_matrix->get_ncol(); j++) {
+      auto col_index = pred_design_matrix->ColIndices[j]; 
+      auto& interact = col_index.interaction;
+      auto sample_idx = col_index.sample_idx;
+      
+      bool expected = true;
+      for (auto c : interact) {
+        auto thres = df(sample_idx, c);
+        auto val = test_df(i, c);
+        expected &= (val >= thres);
+      }
+
+      EXPECT_EQ((*realized_pred_design_matrix)(i, j), expected);
     }
   }
 }

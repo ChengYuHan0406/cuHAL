@@ -1,9 +1,12 @@
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
 #include "omp.h"
+#include <NumCpp/Core/Enums.hpp>
+#include <NumCpp/Functions/stack.hpp>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <sys/types.h>
@@ -29,7 +32,8 @@ void DesignMatrix::_init_ColIndices(size_t order, size_t prev_idx,
 
 DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
                            size_t max_order, float sample_ratio)
-    : _dataframe(dataframe), _max_order(max_order) {
+    : _dataframe(dataframe), _max_order(max_order), 
+      _type("train"), _offset(0) {
   auto df_shape = dataframe.shape();
   size_t df_nrow = df_shape.rows;
   size_t df_ncol = df_shape.cols;
@@ -48,6 +52,22 @@ DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
 
   this->_ncol = this->ColIndices.size();  
 };
+
+void DesignMatrix::_init_PredDesignMatrix(const nc::NdArray<float>& new_df) {
+  this->_offset = this->_dataframe.shape().rows; 
+  this->_dataframe = nc::stack({this->_dataframe, new_df}, nc::Axis::ROW);
+  this->_type = "prediction";
+  this->_nrow = new_df.shape().rows;
+}
+
+std::unique_ptr<DesignMatrix> DesignMatrix::getPredDesignMatrix(const nc::NdArray<float>& new_df) const {
+  if (this->_type != "train") {
+    std::cerr << "Should be called from DesignMatrix with type `train`" << std::endl;
+  }
+  auto res = std::make_unique<DesignMatrix>(*this);
+  res->_init_PredDesignMatrix(new_df);
+  return res;
+}
 
 std::unique_ptr<nc::NdArray<bool>> 
 DesignMatrix::getRegion(uint64_t row_start, uint64_t row_end,
@@ -104,6 +124,10 @@ DesignMatrix::getRegion(uint64_t row_start, uint64_t row_end,
 std::unique_ptr<nc::NdArray<bool>>
 DesignMatrix::getCol(const struct ColIndex &col_index, size_t start_idx,
                      size_t end_idx) const {
+
+  if (this->_type != "train") {
+    std::cerr << "Should be called from DesignMatrix with type `train`" << std::endl;
+  }
   const nc::NdArray<float> &df = this->_dataframe;
 
   // Check validality of col_index, return nullptr if invalid
@@ -134,15 +158,18 @@ DesignMatrix::getCol(const struct ColIndex &col_index, size_t start_idx,
 }
 
 std::unique_ptr<BinSpMat> DesignMatrix::getBatch(const size_t start_idx, const size_t end_idx) const {
+
+  auto shifted_start_idx = start_idx + this->_offset;
+  auto shifted_end_idx = end_idx + this->_offset;
   
-  if (end_idx > this->_nrow || start_idx > end_idx) {
+  if (shifted_end_idx > this->_dataframe.shape().rows || shifted_start_idx > shifted_end_idx) {
     throw std::out_of_range("Index out of range");
   }
 
   auto& df = this->_dataframe;
 
   const size_t num_threads = omp_get_max_threads();
-  const size_t batch_size = end_idx - start_idx;
+  const size_t batch_size = shifted_end_idx - shifted_start_idx;
   size_t block_size = std::ceil(batch_size / (float)num_threads);
 
   auto res = std::make_unique<BinSpMat>(batch_size, this->_ncol);
@@ -150,8 +177,8 @@ std::unique_ptr<BinSpMat> DesignMatrix::getBatch(const size_t start_idx, const s
   #pragma omp parallel
   {
     size_t thread_id = omp_get_thread_num();
-    size_t row_start = start_idx + thread_id * block_size;
-    size_t row_end = start_idx + std::min((thread_id + 1) * block_size, batch_size);
+    size_t row_start = shifted_start_idx + thread_id * block_size;
+    size_t row_end = shifted_start_idx + std::min((thread_id + 1) * block_size, batch_size);
 
     for (int row_idx = row_start; row_idx < row_end; row_idx++) {
       for (int col_idx = 0; col_idx < this->_ncol; col_idx++) {
@@ -167,7 +194,7 @@ std::unique_ptr<BinSpMat> DesignMatrix::getBatch(const size_t start_idx, const s
         }
 
         if (cur_elem) {
-          auto local_row_idx = row_idx - start_idx;
+          auto local_row_idx = row_idx - shifted_start_idx;
           res->fill(local_row_idx, col_idx);
         }
       }

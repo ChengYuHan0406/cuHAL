@@ -22,17 +22,26 @@ public:
   std::unique_ptr<nc::NdArray<bool>> getCol(const struct ColIndex& col_index,
                                             size_t start_idx = 0,
                                             size_t end_idx = 0) const;
-  //std::unique_ptr<nc::NdArray<bool>> getBatch(const size_t start_idx, const size_t end_idx) const;
   std::unique_ptr<BinSpMat> getBatch(const size_t start_idx, const size_t end_idx) const;
+
   size_t get_nrow() const { return this->_nrow; }
   size_t get_ncol() const { return this->_ncol; }
 
   std::vector<struct ColIndex> ColIndices;
+
+  /* For prediction */
+  std::unique_ptr<DesignMatrix> getPredDesignMatrix(const nc::NdArray<float>& new_df) const;
+
 private:
-  const nc::NdArray<float> _dataframe;
+  nc::NdArray<float> _dataframe;
+  std::string _type;
   size_t _max_order;
   size_t _nrow;
   size_t _ncol;
+  size_t _offset;
   nc::NdArray<int> _sampled_row;
   void _init_ColIndices(size_t order, size_t prev_idx, std::vector<size_t>& interact);
+
+  /* For prediction */
+  void _init_PredDesignMatrix(const nc::NdArray<float>& new_df);
 };
