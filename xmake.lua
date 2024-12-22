@@ -56,3 +56,4 @@ target("test_batch_binspmv")
   add_deps("BatchedDesignMatrix")
   add_deps("BinSpMV")
   add_deps("batch_binspmv")
+
