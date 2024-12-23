@@ -9,21 +9,21 @@
 
 class Loss {
 public:
-  virtual float compute(const nc::NdArray<float>& output, const nc::NdArray<float>& label) = 0;
+  virtual float compute(const nc::NdArray<float>& output, const nc::NdArray<float>& label) const = 0;
   /* Gradient with respect to output */
-  virtual nc::NdArray<float> grad(const nc::NdArray<float>& output, const nc::NdArray<float>& label) = 0;
+  virtual nc::NdArray<float> grad(const nc::NdArray<float>& output, const nc::NdArray<float>& label) const = 0;
 };
 
 class MSELoss : public Loss {
 public:
-  float compute(const nc::NdArray<float>& output, const nc::NdArray<float>& label) {
+  float compute(const nc::NdArray<float>& output, const nc::NdArray<float>& label) const {
     PROLOGUE
 
     return nc::sum(nc::power((output - label), 2))(0, 0) / len;
   }
 
   nc::NdArray<float> grad(const nc::NdArray<float>& output,
-                          const nc::NdArray<float>& label) {
+                          const nc::NdArray<float>& label) const {
     PROLOGUE
     auto res = (((2 / (float)len) * (output - label))).reshape(1, len);
     return res;

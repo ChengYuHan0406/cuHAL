@@ -110,7 +110,7 @@ TEST(DesignMatrixTest, getCol) {
 
   auto col_indices = design_matrix.ColIndices;
   for (int i = 0; i < col_indices.size(); i++) {
-      auto col = design_matrix.getCol(col_indices[i]);
+      auto col = design_matrix.getCol(i);
       auto expected = expected_DesignMatrix(expected_DesignMatrix.rSlice(), i);
 
       EXPECT_EQ(col->shape().cols, expected.shape().cols);

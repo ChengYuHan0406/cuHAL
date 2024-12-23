@@ -122,13 +122,14 @@ DesignMatrix::getRegion(uint64_t row_start, uint64_t row_end,
 }
 
 std::unique_ptr<nc::NdArray<bool>>
-DesignMatrix::getCol(const struct ColIndex &col_index, size_t start_idx,
+DesignMatrix::getCol(size_t col_idx, size_t start_idx,
                      size_t end_idx) const {
 
   if (this->_type != "train") {
     std::cerr << "Should be called from DesignMatrix with type `train`" << std::endl;
   }
   const nc::NdArray<float> &df = this->_dataframe;
+  auto col_index = this->ColIndices[col_idx];
 
   // Check validality of col_index, return nullptr if invalid
   size_t interact_size = col_index.interaction.size();

@@ -1,3 +1,4 @@
+#pragma once
 #include "BinSpMV.hpp"
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>

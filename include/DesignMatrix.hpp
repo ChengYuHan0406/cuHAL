@@ -19,7 +19,7 @@ public:
                                                size_t row_end,
                                                size_t col_start,
                                                size_t col_end) const;
-  std::unique_ptr<nc::NdArray<bool>> getCol(const struct ColIndex& col_index,
+  std::unique_ptr<nc::NdArray<bool>> getCol(size_t col_idx,
                                             size_t start_idx = 0,
                                             size_t end_idx = 0) const;
   std::unique_ptr<BinSpMat> getBatch(const size_t start_idx, const size_t end_idx) const;
