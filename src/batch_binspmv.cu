@@ -65,9 +65,7 @@ std::unique_ptr<nc::NdArray<float>> batch_binspmv(BatchedDesignMatrix& A, const 
 
     binspmv_kernel<<<num_rows, WARPSIZE>>>(num_rows, row_ptrs_d, col_indices_d, x_d, y_d);
 
-    if (batch_idx + 1 < num_batchs) {
-      A.prefetch(batch_idx + 1);
-    }
+    A.prefetch((batch_idx + 1) % num_batchs);
 
     cudaDeviceSynchronize();
     auto batch_start = batch_idx * batch_size;

@@ -2,20 +2,22 @@
 #include "BatchedDesignMatrix.hpp"
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
+#include <memory>
 #include "Loss.hpp"
 
 class HAL {
 public:
-  HAL(const nc::NdArray<float>& dataframe, nc::NdArray<float> labels, size_t max_order);
+  HAL(const nc::NdArray<float>& dataframe, nc::NdArray<float> labels, size_t max_order, float sample_ratio = 1);
   const DesignMatrix& design_matrix() const { return this->_design_matrix; }
   const nc::NdArray<float>& labels() const { return this->_labels; }
   void update_weights(const size_t idx, const float delta);
-  nc::NdArray<float>& weights() { return this->_weights; }
-  float bias() { return this->_bias; }
+  const nc::NdArray<float>& weights() const { return this->_weights; }
+  float bias() const { return this->_bias; }
 private:
   const nc::NdArray<float> _labels; // Denoted by 'y'
   const DesignMatrix _design_matrix; // Denoted by 'A'
   size_t _max_order;
+  size_t _sample_ratio;
   nc::NdArray<float> _weights; // Denoted by 'beta'
   float _bias; // Denoted by 'b'
 };
@@ -50,4 +52,13 @@ private:
   const float _lambda;
   const float _step_size;
   const nc::NdArray<float>& _label;
+};
+
+class Predictor {
+public:
+  Predictor(const HAL& hal, const size_t batch_size) : _hal(hal), _batch_size(batch_size) {}
+  std::unique_ptr<nc::NdArray<float>> predict(const nc::NdArray<float>& new_data) const;
+private:
+  const HAL& _hal;
+  const size_t _batch_size;
 };

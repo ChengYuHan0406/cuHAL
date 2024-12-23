@@ -2,6 +2,9 @@
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
 #include "assert.h"
+#include <NumCpp/Functions/clip.hpp>
+#include <NumCpp/Functions/maximum.hpp>
+#include <NumCpp/Functions/zeros.hpp>
 #include <cmath>
 #include "omp.h"
 #include <stdlib.h> 
@@ -11,9 +14,11 @@ std::unique_ptr<nc::NdArray<float>> batch_binspmv(BatchedDesignMatrix& A, const 
 
 HAL::HAL(const nc::NdArray<float>& dataframe,
          nc::NdArray<float> labels,
-         size_t max_order) : _design_matrix(DesignMatrix(dataframe, max_order)),
-                             _labels(labels),
-                             _max_order(max_order) {
+         size_t max_order,
+         float sample_ratio) : _design_matrix(DesignMatrix(dataframe, max_order, sample_ratio)),
+                               _labels(labels),
+                               _max_order(max_order),
+                               _sample_ratio(sample_ratio) {
 
   auto shape_dataframe = dataframe.shape();
   auto shape_labels = labels.shape();
@@ -25,11 +30,11 @@ HAL::HAL(const nc::NdArray<float>& dataframe,
   auto nrow = this->_design_matrix.get_nrow();
   auto ncol = this->_design_matrix.get_ncol();
   
-  srand(time(NULL));
   /* Initialize `_weights` an `_bias` */
+  srand(time(NULL));
   float sigma = 1 / sqrt(nrow * ncol);
   this->_weights = sigma * nc::random::randN<float>({static_cast<uint32_t>(ncol), 1}); 
-  this->_bias = sigma * nc::random::randN<float>({1, 1})(0, 0); 
+  this->_bias = sigma * nc::random::randN<float>({1, 1})(0, 0);
 }
 
 void HAL::update_weights(const size_t idx, const float delta) {
@@ -77,4 +82,13 @@ void PSCDTrainer::run_one_iteration() {
   for (auto p : deltas) {
     this->_hal.update_weights(p.first, p.second);
   }
+}
+
+std::unique_ptr<nc::NdArray<float>> Predictor::predict(const nc::NdArray<float>& new_data) const {
+  auto& design_matrix = this->_hal.design_matrix();
+  auto pred_design_matrix = design_matrix.getPredDesignMatrix(new_data);
+  auto batched_pred_design_matrix = BatchedDesignMatrix(*pred_design_matrix, this->_batch_size);
+  auto outputs = batch_binspmv(batched_pred_design_matrix, this->_hal.weights());
+  (*outputs) += this->_hal.bias();
+  return outputs;
 }
