@@ -15,10 +15,10 @@ public:
   DesignMatrix(const DesignMatrix& other) = default;
   DesignMatrix(DesignMatrix&& other) = default;
 
-  std::unique_ptr<nc::NdArray<bool>> getRegion(size_t row_start,
-                                               size_t row_end,
-                                               size_t col_start,
-                                               size_t col_end) const;
+  std::unique_ptr<BinSpMat> getRegion(size_t row_start,
+                                      size_t row_end,
+                                      size_t col_start,
+                                      size_t col_end) const;
   std::unique_ptr<nc::NdArray<bool>> getCol(size_t col_idx,
                                             size_t start_idx = 0,
                                             size_t end_idx = 0) const;

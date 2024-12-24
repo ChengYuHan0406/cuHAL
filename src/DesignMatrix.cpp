@@ -69,47 +69,6 @@ std::unique_ptr<DesignMatrix> DesignMatrix::getPredDesignMatrix(const nc::NdArra
   return res;
 }
 
-std::unique_ptr<nc::NdArray<bool>> 
-DesignMatrix::getRegion(uint64_t row_start, uint64_t row_end,
-                        uint64_t col_start, uint64_t col_end) const {
-  
-  if (row_end > this->_nrow || col_end > this->_ncol) {
-    throw std::out_of_range("Index out of range");
-  }
-
-  const uint64_t num_threads = std::min(omp_get_max_threads(), static_cast<int>(this->_ncol));
-  const uint64_t row_size = row_end - row_start;
-  const uint64_t col_size = col_end - col_start;
-  const uint64_t num_elements = row_size * col_size; 
-  uint64_t block_size = std::ceil(num_elements / (float)num_threads);
-
-  /* Since NumCpp uses uint32_t for array size, 
-   * ensure that `row_size * col_size` does not exceed the uint32_t limit. */
-  if (row_size * col_size >= std::numeric_limits<uint32_t>::max()) {
-    throw std::out_of_range("Size exceeds uint32_t limit");
-  }
-
-  auto res = std::make_unique<nc::NdArray<bool>>(row_size, col_size);
-
-  #pragma omp parallel num_threads(num_threads)
-  {
-    uint64_t thread_id = omp_get_thread_num();
-    uint64_t idx_start = thread_id * block_size;
-    uint64_t idx_end = std::min((thread_id + 1) * block_size, num_elements);
-
-    for (int64_t i = idx_start; i < (int64_t)idx_end; i++) {
-      uint64_t local_row_idx = i / col_size;
-      uint64_t local_col_idx = i % col_size;
-      auto global_row_idx = row_start + local_row_idx;
-      auto global_col_idx = col_start + local_col_idx; 
-
-      (*res)(local_row_idx, local_col_idx) = this->at(global_row_idx, global_col_idx); 
-    }
-  }
-
-  return res;
-}
-
 std::unique_ptr<nc::NdArray<bool>>
 DesignMatrix::getCol(size_t col_idx, size_t start_idx,
                      size_t end_idx) const {
@@ -147,32 +106,41 @@ DesignMatrix::getCol(size_t col_idx, size_t start_idx,
   return res;
 }
 
-std::unique_ptr<BinSpMat> DesignMatrix::getBatch(const size_t start_idx, const size_t end_idx) const {
+std::unique_ptr<BinSpMat> 
+DesignMatrix::getRegion(uint64_t row_start, uint64_t row_end,
+                        uint64_t col_start, uint64_t col_end) const {
 
-  auto shifted_start_idx = start_idx + this->_offset;
-  auto shifted_end_idx = end_idx + this->_offset;
-  
-  if (shifted_end_idx > this->_dataframe.shape().rows || shifted_start_idx > shifted_end_idx) {
+  bool valid_row_bounds = (row_end <= this->_nrow)
+                       && (row_start <= row_end);
+  bool valid_col_bounds = (col_end <= this->_ncol)
+                       && (col_start <= col_end);
+
+  if (!valid_row_bounds || !valid_col_bounds) {
     throw std::out_of_range("Index out of range");
   }
 
-  const size_t num_threads = omp_get_max_threads();
-  const size_t batch_size = shifted_end_idx - shifted_start_idx;
-  size_t block_size = std::ceil(batch_size / (float)num_threads);
+  auto shifted_row_start = row_start + this->_offset;
+  auto shifted_row_end = row_end + this->_offset;
 
-  auto res = std::make_unique<BinSpMat>(batch_size, this->_ncol);
+  const size_t num_threads = omp_get_max_threads();
+  const size_t row_size = shifted_row_end - shifted_row_start;
+  const size_t col_size = col_end - col_start;
+  size_t block_size = std::ceil(row_size / (float)num_threads);
+
+  auto res = std::make_unique<BinSpMat>(row_size, col_size);
 
   #pragma omp parallel
   {
     size_t thread_id = omp_get_thread_num();
-    size_t row_start = shifted_start_idx + thread_id * block_size;
-    size_t row_end = shifted_start_idx + std::min((thread_id + 1) * block_size, batch_size);
+    size_t block_row_start = shifted_row_start + thread_id * block_size;
+    size_t block_row_end = shifted_row_start + std::min((thread_id + 1) * block_size, row_size);
 
-    for (int row_idx = row_start; row_idx < row_end; row_idx++) {
-      for (int col_idx = 0; col_idx < this->_ncol; col_idx++) {
+    for (int row_idx = block_row_start; row_idx < block_row_end; row_idx++) {
+      for (int col_idx = col_start; col_idx < col_end; col_idx++) {
         if (this->at(row_idx, col_idx)) {
-          auto local_row_idx = row_idx - shifted_start_idx;
-          res->fill(local_row_idx, col_idx);
+          auto local_row_idx = row_idx - shifted_row_start;
+          auto local_col_idx = col_idx - col_start;
+          res->fill(local_row_idx, local_col_idx);
         }
       }
     }
@@ -181,6 +149,10 @@ std::unique_ptr<BinSpMat> DesignMatrix::getBatch(const size_t start_idx, const s
   res->translate();
 
   return res;
+}
+
+std::unique_ptr<BinSpMat> DesignMatrix::getBatch(const size_t start_idx, const size_t end_idx) const {
+  return getRegion(start_idx, end_idx, 0, this->_ncol);
 }
 
 bool DesignMatrix::at(const size_t row_idx, const size_t col_idx) const {

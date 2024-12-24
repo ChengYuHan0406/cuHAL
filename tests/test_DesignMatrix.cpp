@@ -273,7 +273,10 @@ TEST(DesignMatrixTest, getRegion) {
 
   auto row_start = 10, row_end = 20;
   auto col_start = 5, col_end = 8;
-  std::unique_ptr<nc::NdArray<bool>> realized_region = design_matrix.getRegion(row_start, row_end, col_start, col_end);
+  std::unique_ptr<nc::NdArray<bool>> realized_region = design_matrix.getRegion(row_start,
+                                                                               row_end,
+                                                                               col_start,
+                                                                               col_end)->full();
 
   auto row_size = row_end - row_start;
   auto col_size = col_end - col_start;
