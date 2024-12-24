@@ -27,6 +27,8 @@ public:
   size_t get_nrow() const { return this->_nrow; }
   size_t get_ncol() const { return this->_ncol; }
 
+  bool at(const size_t row_idx, const size_t col_idx) const;
+
   std::vector<struct ColIndex> ColIndices;
 
   /* For prediction */

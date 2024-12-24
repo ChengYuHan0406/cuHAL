@@ -77,7 +77,6 @@ DesignMatrix::getRegion(uint64_t row_start, uint64_t row_end,
     throw std::out_of_range("Index out of range");
   }
 
-  auto& df = this->_dataframe;
   const uint64_t num_threads = std::min(omp_get_max_threads(), static_cast<int>(this->_ncol));
   const uint64_t row_size = row_end - row_start;
   const uint64_t col_size = col_end - col_start;
@@ -103,18 +102,8 @@ DesignMatrix::getRegion(uint64_t row_start, uint64_t row_end,
       uint64_t local_col_idx = i % col_size;
       auto global_row_idx = row_start + local_row_idx;
       auto global_col_idx = col_start + local_col_idx; 
-      auto& col_index = this->ColIndices[global_col_idx]; 
-      auto& interaction = col_index.interaction;
-      auto sample_idx = col_index.sample_idx;
 
-      bool cur_elem = true; 
-      for (auto& c : interaction) {
-        float thres = df(sample_idx, c);
-        float val = df(global_row_idx, c);
-        cur_elem &= (val >= thres);
-      }
-
-      (*res)(local_row_idx, local_col_idx) = cur_elem; 
+      (*res)(local_row_idx, local_col_idx) = this->at(global_row_idx, global_col_idx); 
     }
   }
 
@@ -167,8 +156,6 @@ std::unique_ptr<BinSpMat> DesignMatrix::getBatch(const size_t start_idx, const s
     throw std::out_of_range("Index out of range");
   }
 
-  auto& df = this->_dataframe;
-
   const size_t num_threads = omp_get_max_threads();
   const size_t batch_size = shifted_end_idx - shifted_start_idx;
   size_t block_size = std::ceil(batch_size / (float)num_threads);
@@ -183,18 +170,7 @@ std::unique_ptr<BinSpMat> DesignMatrix::getBatch(const size_t start_idx, const s
 
     for (int row_idx = row_start; row_idx < row_end; row_idx++) {
       for (int col_idx = 0; col_idx < this->_ncol; col_idx++) {
-        auto& col_index = this->ColIndices[col_idx];
-        auto& interaction = col_index.interaction;
-        auto sample_idx = col_index.sample_idx;
-
-        bool cur_elem = true; 
-        for (auto& c : interaction) {
-          float thres = df(sample_idx, c);
-          float val = df(row_idx, c);
-          cur_elem &= (val >= thres);
-        }
-
-        if (cur_elem) {
+        if (this->at(row_idx, col_idx)) {
           auto local_row_idx = row_idx - shifted_start_idx;
           res->fill(local_row_idx, col_idx);
         }
@@ -207,4 +183,18 @@ std::unique_ptr<BinSpMat> DesignMatrix::getBatch(const size_t start_idx, const s
   return res;
 }
 
+bool DesignMatrix::at(const size_t row_idx, const size_t col_idx) const {
+  auto& df = this->_dataframe;
+  auto& col_index = this->ColIndices[col_idx];
+  auto& interaction = col_index.interaction;
+  auto sample_idx = col_index.sample_idx;
+
+  bool res = true; 
+  for (auto& c : interaction) {
+    float thres = df(sample_idx, c);
+    float val = df(row_idx, c);
+    res &= (val >= thres);
+  }
+  return res;
+}
 
