@@ -32,22 +32,15 @@ class PSCDTrainer {
 public:
   PSCDTrainer(HAL& hal,
               const Loss& loss,
-              const size_t batch_size,
               const float lambda,
               const float step_size) : _hal(hal), 
                                        _loss(loss),
                                        _lambda(lambda),
                                        _step_size(step_size),
-                                       _label(hal.labels()),
-                                       _batched_design_matrix(
-                                         hal.design_matrix(),
-                                         batch_size
-                                       ) {} 
+                                       _label(hal.labels()) {} 
   void run_one_iteration();
-  BatchedDesignMatrix& batched_design_matrix() { return this->_batched_design_matrix; }
 private:
   HAL& _hal;
-  BatchedDesignMatrix _batched_design_matrix;
   const Loss& _loss;
   const float _lambda;
   const float _step_size;
@@ -56,9 +49,8 @@ private:
 
 class Predictor {
 public:
-  Predictor(const HAL& hal, const size_t batch_size) : _hal(hal), _batch_size(batch_size) {}
+  Predictor(const HAL& hal, const size_t batch_size) : _hal(hal) {}
   std::unique_ptr<nc::NdArray<float>> predict(const nc::NdArray<float>& new_data) const;
 private:
   const HAL& _hal;
-  const size_t _batch_size;
 };

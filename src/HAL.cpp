@@ -44,19 +44,22 @@ void HAL::update_weights(const size_t idx, const float delta) {
 }
 
 void PSCDTrainer::run_one_iteration() {
-  auto outputs = batch_binspmv(this->_batched_design_matrix, this->_hal.weights());
+  auto outputs = this->_hal.design_matrix().fusedRegionMV(
+    0, this->_hal.design_matrix().get_nrow(),
+    0, this->_hal.design_matrix().get_ncol(),
+    this->_hal.weights()
+  );
   (*outputs) += this->_hal.bias();
   auto grad = this->_loss.grad(*outputs, this->_label); 
 
   size_t num_threads = omp_get_max_threads();
   std::vector<std::pair<size_t, float>> deltas(num_threads); // vector of (column idx, delta)
 
-  srand(time(NULL));
   #pragma omp parallel num_threads(num_threads)
   {
     size_t thread_idx = omp_get_thread_num();
     /* Number of columns including bias term */
-    auto ncol = this->_batched_design_matrix.ncol() + 1;
+    auto ncol = this->_hal.design_matrix().get_ncol() + 1;
     auto col_idx = rand() % ncol;
 
     float partial_grad;
@@ -85,8 +88,11 @@ void PSCDTrainer::run_one_iteration() {
 std::unique_ptr<nc::NdArray<float>> Predictor::predict(const nc::NdArray<float>& new_data) const {
   auto& design_matrix = this->_hal.design_matrix();
   auto pred_design_matrix = design_matrix.getPredDesignMatrix(new_data);
-  auto batched_pred_design_matrix = BatchedDesignMatrix(*pred_design_matrix, this->_batch_size);
-  auto outputs = batch_binspmv(batched_pred_design_matrix, this->_hal.weights());
+  auto outputs = pred_design_matrix->fusedRegionMV(
+    0, pred_design_matrix->get_nrow(),
+    0, pred_design_matrix->get_ncol(),
+    this->_hal.weights()
+  );
   (*outputs) += this->_hal.bias();
   return outputs;
 }
