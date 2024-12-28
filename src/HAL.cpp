@@ -15,10 +15,11 @@ std::unique_ptr<nc::NdArray<float>> batch_binspmv(BatchedDesignMatrix& A, const 
 HAL::HAL(const nc::NdArray<float>& dataframe,
          nc::NdArray<float> labels,
          size_t max_order,
-         float sample_ratio) : _design_matrix(DesignMatrix(dataframe, max_order, sample_ratio)),
+         float sample_ratio) : _design_matrix(dataframe, max_order, sample_ratio),
                                _labels(labels),
                                _max_order(max_order),
-                               _sample_ratio(sample_ratio) {
+                               _sample_ratio(sample_ratio),
+                               _bias(0) {
 
   auto shape_dataframe = dataframe.shape();
   auto shape_labels = labels.shape();
@@ -30,11 +31,8 @@ HAL::HAL(const nc::NdArray<float>& dataframe,
   auto nrow = this->_design_matrix.get_nrow();
   auto ncol = this->_design_matrix.get_ncol();
   
-  /* Initialize `_weights` an `_bias` */
-  srand(time(NULL));
-  float sigma = 1 / sqrt(nrow * ncol);
-  this->_weights = sigma * nc::random::randN<float>({static_cast<uint32_t>(ncol), 1}); 
-  this->_bias = sigma * nc::random::randN<float>({1, 1})(0, 0);
+  /* Initialize `_weights` */
+  this->_weights = nc::zeros<float>({static_cast<uint32_t>(ncol), 1}); 
 }
 
 void HAL::update_weights(const size_t idx, const float delta) {

@@ -5,9 +5,10 @@ add_cxxflags("-O3 -ftree-vectorize -fstrict-aliasing -march=native -mtune=native
 
 target("DesignMatrix")
   set_kind("shared")
-  add_files("./src/DesignMatrix.cpp")
+  add_files("./src/DesignMatrix.cu")
   add_deps("BinSpMV")
-  add_packages("openmp")
+  add_cugencodes("native")
+  add_cuflags("-Xcompiler -fopenmp")
 
 target("test_DesignMatrix")
   set_kind("binary")
@@ -16,6 +17,7 @@ target("test_DesignMatrix")
   add_deps("DesignMatrix")
   add_deps("BinSpMV")
   add_deps("BatchedDesignMatrix")
+  add_deps("batch_binspmv")
 
 target("BatchedDesignMatrix")
   set_kind("shared")

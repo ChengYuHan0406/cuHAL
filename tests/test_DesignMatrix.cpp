@@ -1,6 +1,9 @@
 #include <NumCpp.hpp>
+#include <NumCpp/Functions/dot.hpp>
+#include <NumCpp/Functions/norm.hpp>
 #include <NumCpp/Functions/ones.hpp>
 #include <NumCpp/Functions/sum.hpp>
+#include <NumCpp/Random/randN.hpp>
 #include <gtest/gtest.h>
 #include <iostream>
 #include <memory>
@@ -13,6 +16,8 @@ nc::NdArray<bool> static _create_block() {
                            {true, true, true}};
   return res;
 }
+
+std::unique_ptr<nc::NdArray<float>> batch_binspmv(BatchedDesignMatrix& A, const nc::NdArray<float>& x);
 
 TEST(DesignMatrixTest, InitColIndices) {
   size_t max_order = 2;
@@ -134,18 +139,21 @@ TEST(DesignMatrixTest, getBatch) {
   auto batch1 = design_matrix.getBatch(start_idx1, end_idx1);
   auto err = nc::sum(*batch1->full() - expected_DesignMatrix(nc::Slice(start_idx1, end_idx1),
                                                      nc::Slice(0, 18)))(0, 0);
+
   EXPECT_EQ(err, 0);
 
   size_t start_idx2 = 2, end_idx2 = 3;
   auto batch2 = design_matrix.getBatch(start_idx2, end_idx2);
   auto err2 = nc::sum(*batch2->full() - expected_DesignMatrix(nc::Slice(start_idx2, end_idx2),
                                                       nc::Slice(0, 18)))(0, 0);
+
   EXPECT_EQ(err2, 0);
 
   size_t start_idx_full = 0, end_idx_full = 3;
   auto batch_full = design_matrix.getBatch(start_idx_full, end_idx_full);
   auto err_full = nc::sum(*batch_full->full() - expected_DesignMatrix(nc::Slice(start_idx_full, end_idx_full),
                                                               nc::Slice(0, 18)))(0, 0);
+
   EXPECT_EQ(err_full, 0);
 }
 
@@ -300,8 +308,60 @@ TEST(DesignMatrixTest, getRegion) {
       EXPECT_EQ(cur_val, expected);
     }
   }
-  
 }
+
+TEST(DesignMatrixTest, fusedRegionMV) {
+  size_t max_order = 3;
+  const size_t nrow = 50;
+  const size_t ncol = 10; 
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+
+  auto row_start = 10, row_end = 20;
+  auto col_start = 5, col_end = 8;
+
+  auto rand_vec = nc::random::randN<float>({(uint32_t)(col_end - col_start), 1});
+
+  auto expected = nc::dot(design_matrix.getRegion(row_start,
+                                                  row_end,
+                                                  col_start,
+                                                  col_end)->full()->astype<float>(),
+                          rand_vec);
+
+  auto res = design_matrix.fusedRegionMV(row_start,
+                                         row_end,
+                                         col_start,
+                                         col_end,
+                                         rand_vec);
+
+  auto err = nc::norm(*res - expected)(0, 0) / nc::norm(expected)(0, 0);
+  EXPECT_LE(err, 1e-5);
+}
+
+TEST(DesignMatrixTest, fusedRegionMVPred) {
+  size_t max_order = 3;
+  const size_t nrow = 100;
+  const size_t test_nrow = 10;
+  const size_t ncol = 20;
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto test_df = nc::random::randN<float>({test_nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+  auto pred_design_matrix = design_matrix.getPredDesignMatrix(test_df);
+
+  auto rand_vec = nc::random::randN<float>({(uint32_t)design_matrix.get_ncol(), 1});
+  auto bdm = BatchedDesignMatrix(*pred_design_matrix, 100);
+
+  auto expected = batch_binspmv(bdm, rand_vec);
+  auto res = pred_design_matrix->fusedRegionMV(0,
+                                               pred_design_matrix->get_nrow(),
+                                               0,
+                                               pred_design_matrix->get_ncol(), 
+                                               rand_vec);
+
+  auto err = nc::norm(*res - *expected)(0, 0) / nc::norm(*expected)(0, 0);
+  EXPECT_LE(err, 1e-5);
+}
+
 
 int main(int argc, char **argv) {
   testing::InitGoogleTest(&argc, argv);

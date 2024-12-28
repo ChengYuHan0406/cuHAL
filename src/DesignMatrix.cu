@@ -1,17 +1,125 @@
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
 #include "omp.h"
-#include <NumCpp/Core/Enums.hpp>
-#include <NumCpp/Functions/stack.hpp>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <sys/types.h>
 
-void DesignMatrix::_init_ColIndices(size_t order, size_t prev_idx,
+#define WARPSIZE 32
+
+__global__ void fusedRegionMV_kernel(
+  size_t row_start,
+  size_t row_end,
+  size_t col_start,
+  size_t col_end,
+  float* x,
+  float* y,
+  float* dataframe,
+  size_t* interaction,
+  size_t* len_interact,
+  size_t* sample_idx,
+  size_t df_ncol,
+  size_t max_order
+) {
+
+  __shared__ float partial_sums[WARPSIZE];
+
+  size_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+  size_t warp_idx = thread_idx / WARPSIZE;
+  size_t lane_idx = thread_idx % WARPSIZE;
+
+  auto row_idx = row_start + warp_idx;
+
+  if (row_idx < row_end) {
+    partial_sums[lane_idx] = 0;
+    for (int col_idx = col_start + lane_idx; col_idx < col_end; col_idx += WARPSIZE) {
+      size_t cur_sample_idx = sample_idx[col_idx];
+      size_t cur_len_interact = len_interact[col_idx];
+      bool nonzero = true; 
+
+      for (int j = 0; j < cur_len_interact; j++) {
+        size_t cur_interact = interaction[col_idx * max_order + j];
+        float thres = dataframe[cur_sample_idx * df_ncol + cur_interact]; 
+        float val = dataframe[row_idx * df_ncol + cur_interact];
+        nonzero &= (val >= thres);
+      }
+
+      if (nonzero) {
+        partial_sums[lane_idx] += x[col_idx - col_start]; 
+      }
+    }
+  }
+
+  if (lane_idx == 0) {
+    float res = 0;
+    for (int lane_idx = 0; lane_idx < WARPSIZE; lane_idx++) {
+      res += partial_sums[lane_idx];
+    }
+    y[row_idx - row_start] = res;
+  }
+}
+
+std::unique_ptr<nc::NdArray<float>> DesignMatrix::fusedRegionMV(
+    size_t row_start,
+    size_t row_end,
+    size_t col_start,
+    size_t col_end,
+    const nc::NdArray<float>& x
+) const {
+
+  bool valid_row_bounds = (row_end <= this->_nrow)
+                       && (row_start <= row_end);
+  bool valid_col_bounds = (col_end <= this->_ncol)
+                       && (col_start <= col_end);
+
+  if (!valid_row_bounds || !valid_col_bounds) {
+    throw std::out_of_range("Index out of range");
+  }
+
+  auto shifted_row_start = row_start + this->_offset;
+  auto shifted_row_end = row_end + this->_offset;
+
+  auto num_rows = row_end - row_start;
+
+  auto res = std::make_unique<nc::NdArray<float>>(num_rows, 1);
+
+  float* x_cuda;
+  float* y_cuda;
+  auto size_x = x.shape().rows * sizeof(float);
+  auto size_y = num_rows * sizeof(float);
+  cudaMalloc(&x_cuda, size_x);
+  cudaMalloc(&y_cuda, size_y);
+  cudaMemcpy(x_cuda, x.data(), size_x, cudaMemcpyHostToDevice);
+
+  fusedRegionMV_kernel<<<num_rows, WARPSIZE>>>(
+    shifted_row_start,
+    shifted_row_end,
+    col_start,
+    col_end,
+    x_cuda,
+    y_cuda,
+    this->_dataframe_cuda,
+    this->_interaction_cuda,
+    this->_len_interact_cuda,
+    this->_sample_idx_cuda,
+    this->_dataframe.shape().cols,
+    this->_max_order
+  );
+
+  cudaDeviceSynchronize();
+  cudaMemcpy(res->data(), y_cuda, num_rows * sizeof(float), cudaMemcpyDeviceToHost);
+  cudaFree(x_cuda);
+  cudaFree(y_cuda);
+
+  return res;
+}
+
+void DesignMatrix::_init_ColIndices(size_t order, int prev_idx,
                                     std::vector<size_t> &interact) {
   if (order == 0) {
     auto num_sampled_row = this->_sampled_row.shape().cols;
@@ -36,7 +144,6 @@ DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
       _type("train"), _offset(0) {
   auto df_shape = dataframe.shape();
   size_t df_nrow = df_shape.rows;
-  size_t df_ncol = df_shape.cols;
   this->_nrow = df_nrow;
 
   if (sample_ratio == 1) {
@@ -51,13 +158,35 @@ DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
   }
 
   this->_ncol = this->ColIndices.size();  
+  this->_allocate_cudamem();
 };
+
+DesignMatrix::DesignMatrix(const DesignMatrix& other) {
+  this->_dataframe = other._dataframe;
+  this->_type = other._type;
+  this->_max_order = other._max_order;
+  this->_nrow = other._nrow;
+  this->_ncol = other._ncol;
+  this->_offset = other._offset;
+  this->_sampled_row = other._sampled_row;
+  for (auto c : other.ColIndices) {
+    this->ColIndices.push_back({c.interaction, c.sample_idx});
+  }
+};
+
+DesignMatrix::~DesignMatrix() {
+  cudaFree(_dataframe_cuda);
+  cudaFree(_interaction_cuda);
+  cudaFree(_len_interact_cuda);
+  cudaFree(_sample_idx_cuda);
+}
 
 void DesignMatrix::_init_PredDesignMatrix(const nc::NdArray<float>& new_df) {
   this->_offset = this->_dataframe.shape().rows; 
   this->_dataframe = nc::stack({this->_dataframe, new_df}, nc::Axis::ROW);
   this->_type = "prediction";
   this->_nrow = new_df.shape().rows;
+  this->_allocate_cudamem();
 }
 
 std::unique_ptr<DesignMatrix> DesignMatrix::getPredDesignMatrix(const nc::NdArray<float>& new_df) const {
@@ -67,6 +196,50 @@ std::unique_ptr<DesignMatrix> DesignMatrix::getPredDesignMatrix(const nc::NdArra
   auto res = std::make_unique<DesignMatrix>(*this);
   res->_init_PredDesignMatrix(new_df);
   return res;
+}
+
+void DesignMatrix::_allocate_cudamem() {
+  auto df_shape = this->_dataframe.shape();
+  size_t df_nrow = df_shape.rows;
+  size_t df_ncol = df_shape.cols;
+
+  auto size_df = df_nrow * df_ncol * sizeof(float);
+  auto size_interact = this->_ncol * this->_max_order * sizeof(size_t);
+  auto size_len_interat = this->_ncol * sizeof(size_t);
+  auto size_sample_idx = this->_ncol * sizeof(size_t);
+
+  cudaMalloc(&this->_dataframe_cuda, size_df);
+  cudaMalloc(&this->_interaction_cuda, size_interact);
+  cudaMalloc(&this->_len_interact_cuda, size_len_interat);
+  cudaMalloc(&this->_sample_idx_cuda, size_sample_idx);
+
+  size_t* arr_interaction = (size_t*)malloc(size_interact);
+  size_t* arr_len_interact = (size_t*)malloc(size_len_interat);
+  size_t* arr_sample_idx = (size_t*)malloc(size_len_interat);
+
+  /* TODO: Can be parallelize */
+  for (int i = 0; i < this->_ncol; i++) {
+    auto& col_index = this->ColIndices[i]; 
+    auto& interact = col_index.interaction;
+    auto sample_idx = col_index.sample_idx;
+
+    auto cur_len_interact = interact.size();
+    arr_len_interact[i] = cur_len_interact;
+    arr_sample_idx[i] = sample_idx;
+
+    for (int j = 0; j < cur_len_interact; j++) {
+      arr_interaction[i * this->_max_order + j] = interact[j];
+    }
+  }
+
+  cudaMemcpy(this->_dataframe_cuda, this->_dataframe.data(), size_df, cudaMemcpyHostToDevice);
+  cudaMemcpy(this->_interaction_cuda, arr_interaction, size_interact, cudaMemcpyHostToDevice);
+  cudaMemcpy(this->_len_interact_cuda, arr_len_interact, size_len_interat, cudaMemcpyHostToDevice);
+  cudaMemcpy(this->_sample_idx_cuda, arr_sample_idx, size_sample_idx, cudaMemcpyHostToDevice);
+
+  free(arr_interaction);
+  free(arr_len_interact);
+  free(arr_sample_idx);
 }
 
 std::unique_ptr<nc::NdArray<bool>>
@@ -169,4 +342,3 @@ bool DesignMatrix::at(const size_t row_idx, const size_t col_idx) const {
   }
   return res;
 }
-
