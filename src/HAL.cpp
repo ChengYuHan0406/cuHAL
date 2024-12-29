@@ -2,8 +2,12 @@
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
 #include "assert.h"
+#include <NumCpp/Core/Slice.hpp>
 #include <NumCpp/Functions/clip.hpp>
 #include <NumCpp/Functions/maximum.hpp>
+#include <NumCpp/Functions/power.hpp>
+#include <NumCpp/Functions/sqrt.hpp>
+#include <NumCpp/Functions/square.hpp>
 #include <NumCpp/Functions/zeros.hpp>
 #include <cmath>
 #include "omp.h"
@@ -112,35 +116,47 @@ void PSCDTrainer::run_one_iteration() {
   }
 }
 
-void GDTrainer::run(size_t batch_start, size_t batch_end) {
+void AdamTrainer::run(size_t batch_idx) {
+  this->_num_iter++;
   auto& design_matrix = this->_hal.design_matrix();
-  auto outputs = design_matrix.fusedRegionMV(
-    0, this->_hal.design_matrix().get_nrow(),
-    0, this->_hal.design_matrix().get_ncol(),
-    this->_hal.weights()
-  );
+  auto outputs = this->_bdm.batchedMV(batch_idx, this->_hal.weights()); 
   (*outputs) += this->_hal.bias();
-  auto grad = this->_loss.grad(*outputs, this->_label).transpose(); 
+  auto grad = this->_loss.grad(*outputs, this->_label(nc::Slice(this->_batched_start(batch_idx),
+                                                                this->_batched_end(batch_idx)),
+                                                      0)).transpose(); 
 
-  auto grad_weights = design_matrix.fusedRegionMV(
-                        batch_start,
-                        batch_end,
-                        0,
-                        design_matrix.get_ncol(),
-                        grad,
-                        true
-                      );
-
+  auto grad_weights = this->_bdm.batchedMV(batch_idx, grad, true);
   auto grad_bias = nc::sum(grad)(0, 0);
 
-  auto new_weights = _soft_threshold(this->_hal.weights() - this->_step_size * (*grad_weights),
+  this->_u_weights = this->_beta_1 * this->_u_weights + (1 - this->_beta_1) * (*grad_weights);
+  this->_v_weights = this->_beta_2 * this->_v_weights + (1 - this->_beta_2) * nc::square(*grad_weights);
+  this->_u_bias = this->_beta_1 * this->_u_bias + (1 - this->_beta_1) * grad_bias;
+  this->_v_bias = this->_beta_2 * this->_v_bias + (1 - this->_beta_2) * nc::square(grad_bias);
+
+  auto delta_weights = -(this->_step_size * this->_u_weights) / (nc::sqrt(this->_v_weights) + (float)1e-9);
+  auto delta_bias = -(this->_step_size * this->_u_bias) / (nc::sqrt(this->_v_bias) + (float)1e-9);
+
+  auto new_weights = _soft_threshold(this->_hal.weights() + delta_weights,
                                      this->_lambda, this->_step_size);
-  auto new_bias = _soft_threshold(this->_hal.bias() - this->_step_size * grad_bias,
+  auto new_bias = _soft_threshold(this->_hal.bias() + delta_bias,
                                   this->_lambda, this->_step_size);
 
   this->_hal.set_weights(new_weights);
   this->_hal.set_bias(new_bias);
 }
+
+size_t AdamTrainer::_batched_start(size_t batch_idx) const {
+  auto batch_size = this->_batch_size;
+  auto batch_start = batch_idx * batch_size;
+  return batch_start;
+}
+
+size_t AdamTrainer::_batched_end(size_t batch_idx) const {
+  auto batch_size = this->_batch_size;
+  auto batch_end = std::min((batch_idx + 1) * batch_size, this->_bdm.nrow());
+  return batch_end;
+}
+
 
 std::unique_ptr<nc::NdArray<float>> Predictor::predict(const nc::NdArray<float>& new_data) const {
   auto& design_matrix = this->_hal.design_matrix();

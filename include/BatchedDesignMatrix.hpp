@@ -2,6 +2,7 @@
 #include "BinSpMV.hpp"
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
+#include <NumCpp/NdArray/NdArrayCore.hpp>
 #include <cmath>
 #include <memory>
 
@@ -15,6 +16,10 @@ public:
   BatchedDesignMatrix(const BatchedDesignMatrix& other) = delete;
   BatchedDesignMatrix(BatchedDesignMatrix&& other) = delete;
 
+  std::unique_ptr<nc::NdArray<float>> batchedMV(size_t index,
+                                                const nc::NdArray<float>& vec,
+                                                bool transpose = false
+                                                ) const;
   std::unique_ptr<BinSpMat> get(size_t index); 
   void prefetch(size_t index);
   size_t len() const;
