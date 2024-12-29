@@ -47,9 +47,29 @@ private:
   const nc::NdArray<float>& _label;
 };
 
+/*
+class GDTrainer {
+public:
+  GDTrainer(HAL& hal,
+            const Loss& loss,
+            const float lambda,
+            const float step_size) : _hal(hal), 
+                                      _loss(loss),
+                                      _lambda(lambda),
+                                      _step_size(step_size),
+                                      _label(hal.labels()) {} 
+  void run(size_t batch_start, size_t batch_end);
+private:
+  HAL& _hal;
+  const Loss& _loss;
+  const float _lambda;
+  const float _step_size;
+  const nc::NdArray<float>& _label;
+};
+*/
 class Predictor {
 public:
-  Predictor(const HAL& hal, const size_t batch_size) : _hal(hal) {}
+  Predictor(const HAL& hal) : _hal(hal) {}
   std::unique_ptr<nc::NdArray<float>> predict(const nc::NdArray<float>& new_data) const;
 private:
   const HAL& _hal;

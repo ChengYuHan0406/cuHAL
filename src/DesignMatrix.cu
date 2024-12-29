@@ -1,6 +1,6 @@
 #include "DesignMatrix.hpp"
-#include <NumCpp.hpp>
 #include "omp.h"
+#include <NumCpp.hpp>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -12,70 +12,60 @@
 
 #define WARPSIZE 32
 
-__global__ void fusedRegionMV_kernel(
-  size_t row_start,
-  size_t row_end,
-  size_t col_start,
-  size_t col_end,
-  float* x,
-  float* y,
-  float* dataframe,
-  size_t* interaction,
-  size_t* len_interact,
-  size_t* sample_idx,
-  size_t df_ncol,
-  size_t max_order
-) {
-
-  __shared__ float partial_sums[WARPSIZE];
-
-  size_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
-  size_t warp_idx = thread_idx / WARPSIZE;
-  size_t lane_idx = thread_idx % WARPSIZE;
-
-  auto row_idx = row_start + warp_idx;
-
-  if (row_idx < row_end) {
-    partial_sums[lane_idx] = 0;
-    for (int col_idx = col_start + lane_idx; col_idx < col_end; col_idx += WARPSIZE) {
-      size_t cur_sample_idx = sample_idx[col_idx];
-      size_t cur_len_interact = len_interact[col_idx];
-      bool nonzero = true; 
-
-      for (int j = 0; j < cur_len_interact; j++) {
-        size_t cur_interact = interaction[col_idx * max_order + j];
-        float thres = dataframe[cur_sample_idx * df_ncol + cur_interact]; 
-        float val = dataframe[row_idx * df_ncol + cur_interact];
-        nonzero &= (val >= thres);
-      }
-
-      if (nonzero) {
-        partial_sums[lane_idx] += x[col_idx - col_start]; 
-      }
-    }
+#define KERNEL(NAME, FIRST, SECOND)                                            \
+  __global__ void NAME(size_t row_start, size_t row_end, size_t col_start,     \
+                       size_t col_end, float *x, float *y, float *dataframe,   \
+                       size_t *interaction, size_t *len_interact,              \
+                       size_t *sample_idx, size_t df_ncol, size_t max_order) { \
+                                                                               \
+    __shared__ float partial_sums[WARPSIZE];                                   \
+                                                                               \
+    size_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;                 \
+    size_t warp_idx = thread_idx / WARPSIZE;                                   \
+    size_t lane_idx = thread_idx % WARPSIZE;                                   \
+                                                                               \
+    auto FIRST##_idx = FIRST##_start + warp_idx;                               \
+                                                                               \
+    if (FIRST##_idx < FIRST##_end) {                                           \
+      partial_sums[lane_idx] = 0;                                              \
+      for (int SECOND##_idx = SECOND##_start + lane_idx;                       \
+           SECOND##_idx < SECOND##_end; SECOND##_idx += WARPSIZE) {            \
+        size_t cur_sample_idx = sample_idx[col_idx];                           \
+        size_t cur_len_interact = len_interact[col_idx];                       \
+        bool nonzero = true;                                                   \
+                                                                               \
+        for (int j = 0; j < cur_len_interact; j++) {                           \
+          size_t cur_interact = interaction[col_idx * max_order + j];          \
+          float thres = dataframe[cur_sample_idx * df_ncol + cur_interact];    \
+          float val = dataframe[row_idx * df_ncol + cur_interact];             \
+          nonzero &= (val >= thres);                                           \
+        }                                                                      \
+                                                                               \
+        if (nonzero) {                                                         \
+          partial_sums[lane_idx] += x[SECOND##_idx - SECOND##_start];          \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+                                                                               \
+    if (lane_idx == 0) {                                                       \
+      float res = 0;                                                           \
+      for (int lane_idx = 0; lane_idx < WARPSIZE; lane_idx++) {                \
+        res += partial_sums[lane_idx];                                         \
+      }                                                                        \
+      y[FIRST##_idx - FIRST##_start] = res;                                    \
+    }                                                                          \
   }
 
-  if (lane_idx == 0) {
-    float res = 0;
-    for (int lane_idx = 0; lane_idx < WARPSIZE; lane_idx++) {
-      res += partial_sums[lane_idx];
-    }
-    y[row_idx - row_start] = res;
-  }
-}
+KERNEL(fusedRegionMV_kernel, row, col);
+KERNEL(fusedRegionVM_kernel, col, row);
 
-std::unique_ptr<nc::NdArray<float>> DesignMatrix::fusedRegionMV(
-    size_t row_start,
-    size_t row_end,
-    size_t col_start,
-    size_t col_end,
-    const nc::NdArray<float>& x
-) const {
+std::unique_ptr<nc::NdArray<float>>
+DesignMatrix::fusedRegionMV(size_t row_start, size_t row_end, size_t col_start,
+                            size_t col_end, const nc::NdArray<float> &x,
+                            bool transpose) const {
 
-  bool valid_row_bounds = (row_end <= this->_nrow)
-                       && (row_start <= row_end);
-  bool valid_col_bounds = (col_end <= this->_ncol)
-                       && (col_start <= col_end);
+  bool valid_row_bounds = (row_end <= this->_nrow) && (row_start <= row_end);
+  bool valid_col_bounds = (col_end <= this->_ncol) && (col_start <= col_end);
 
   if (!valid_row_bounds || !valid_col_bounds) {
     throw std::out_of_range("Index out of range");
@@ -84,35 +74,40 @@ std::unique_ptr<nc::NdArray<float>> DesignMatrix::fusedRegionMV(
   auto shifted_row_start = row_start + this->_offset;
   auto shifted_row_end = row_end + this->_offset;
 
-  auto num_rows = row_end - row_start;
+  size_t res_len;
+  if (!transpose) {
+    res_len = row_end - row_start;
+  } else {
+    res_len = col_end - col_start;
+  }
 
-  auto res = std::make_unique<nc::NdArray<float>>(num_rows, 1);
+  auto res = std::make_unique<nc::NdArray<float>>(res_len, 1);
 
-  float* x_cuda;
-  float* y_cuda;
+  float *x_cuda;
+  float *y_cuda;
   auto size_x = x.shape().rows * sizeof(float);
-  auto size_y = num_rows * sizeof(float);
+  auto size_y = res_len * sizeof(float);
   cudaMalloc(&x_cuda, size_x);
   cudaMalloc(&y_cuda, size_y);
   cudaMemcpy(x_cuda, x.data(), size_x, cudaMemcpyHostToDevice);
 
-  fusedRegionMV_kernel<<<num_rows, WARPSIZE>>>(
-    shifted_row_start,
-    shifted_row_end,
-    col_start,
-    col_end,
-    x_cuda,
-    y_cuda,
-    this->_dataframe_cuda,
-    this->_interaction_cuda,
-    this->_len_interact_cuda,
-    this->_sample_idx_cuda,
-    this->_dataframe.shape().cols,
-    this->_max_order
-  );
+  if (!transpose) {
+    fusedRegionMV_kernel<<<res_len, WARPSIZE>>>(
+        shifted_row_start, shifted_row_end, col_start, col_end, x_cuda, y_cuda,
+        this->_dataframe_cuda, this->_interaction_cuda,
+        this->_len_interact_cuda, this->_sample_idx_cuda,
+        this->_dataframe.shape().cols, this->_max_order);
+  } else {
+    fusedRegionVM_kernel<<<res_len, WARPSIZE>>>(
+        shifted_row_start, shifted_row_end, col_start, col_end, x_cuda, y_cuda,
+        this->_dataframe_cuda, this->_interaction_cuda,
+        this->_len_interact_cuda, this->_sample_idx_cuda,
+        this->_dataframe.shape().cols, this->_max_order);
+  }
 
   cudaDeviceSynchronize();
-  cudaMemcpy(res->data(), y_cuda, num_rows * sizeof(float), cudaMemcpyDeviceToHost);
+  cudaMemcpy(res->data(), y_cuda, res_len * sizeof(float),
+             cudaMemcpyDeviceToHost);
   cudaFree(x_cuda);
   cudaFree(y_cuda);
 
@@ -125,7 +120,8 @@ void DesignMatrix::_init_ColIndices(size_t order, int prev_idx,
     auto num_sampled_row = this->_sampled_row.shape().cols;
     for (int i = 0; i < num_sampled_row; i++) {
       int row_idx = this->_sampled_row(0, i);
-      this->ColIndices.push_back(ColIndex{interact, static_cast<size_t>(row_idx)});
+      this->ColIndices.push_back(
+          ColIndex{interact, static_cast<size_t>(row_idx)});
     }
     return;
   }
@@ -140,28 +136,29 @@ void DesignMatrix::_init_ColIndices(size_t order, int prev_idx,
 
 DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
                            size_t max_order, float sample_ratio)
-    : _dataframe(dataframe), _max_order(max_order), 
-      _type("train"), _offset(0) {
+    : _dataframe(dataframe), _max_order(max_order), _type("train"), _offset(0) {
   auto df_shape = dataframe.shape();
   size_t df_nrow = df_shape.rows;
   this->_nrow = df_nrow;
 
   if (sample_ratio == 1) {
-    this->_sampled_row = nc::arange<int>(0, this->_nrow).reshape(1, this->_nrow);
+    this->_sampled_row =
+        nc::arange<int>(0, this->_nrow).reshape(1, this->_nrow);
   } else {
     uint32_t num_sampled_row = std::floor(this->_nrow * sample_ratio);
-    this->_sampled_row = nc::random::randInt<int>({1, num_sampled_row}, 0, this->_nrow);
+    this->_sampled_row =
+        nc::random::randInt<int>({1, num_sampled_row}, 0, this->_nrow);
   }
   for (int o = 1; o <= max_order; o++) {
     std::vector<size_t> interact;
     this->_init_ColIndices(o, -1, interact);
   }
 
-  this->_ncol = this->ColIndices.size();  
+  this->_ncol = this->ColIndices.size();
   this->_allocate_cudamem();
 };
 
-DesignMatrix::DesignMatrix(const DesignMatrix& other) {
+DesignMatrix::DesignMatrix(const DesignMatrix &other) {
   this->_dataframe = other._dataframe;
   this->_type = other._type;
   this->_max_order = other._max_order;
@@ -181,17 +178,19 @@ DesignMatrix::~DesignMatrix() {
   cudaFree(_sample_idx_cuda);
 }
 
-void DesignMatrix::_init_PredDesignMatrix(const nc::NdArray<float>& new_df) {
-  this->_offset = this->_dataframe.shape().rows; 
+void DesignMatrix::_init_PredDesignMatrix(const nc::NdArray<float> &new_df) {
+  this->_offset = this->_dataframe.shape().rows;
   this->_dataframe = nc::stack({this->_dataframe, new_df}, nc::Axis::ROW);
   this->_type = "prediction";
   this->_nrow = new_df.shape().rows;
   this->_allocate_cudamem();
 }
 
-std::unique_ptr<DesignMatrix> DesignMatrix::getPredDesignMatrix(const nc::NdArray<float>& new_df) const {
+std::unique_ptr<DesignMatrix>
+DesignMatrix::getPredDesignMatrix(const nc::NdArray<float> &new_df) const {
   if (this->_type != "train") {
-    std::cerr << "Should be called from DesignMatrix with type `train`" << std::endl;
+    std::cerr << "Should be called from DesignMatrix with type `train`"
+              << std::endl;
   }
   auto res = std::make_unique<DesignMatrix>(*this);
   res->_init_PredDesignMatrix(new_df);
@@ -213,14 +212,14 @@ void DesignMatrix::_allocate_cudamem() {
   cudaMalloc(&this->_len_interact_cuda, size_len_interat);
   cudaMalloc(&this->_sample_idx_cuda, size_sample_idx);
 
-  size_t* arr_interaction = (size_t*)malloc(size_interact);
-  size_t* arr_len_interact = (size_t*)malloc(size_len_interat);
-  size_t* arr_sample_idx = (size_t*)malloc(size_len_interat);
+  size_t *arr_interaction = (size_t *)malloc(size_interact);
+  size_t *arr_len_interact = (size_t *)malloc(size_len_interat);
+  size_t *arr_sample_idx = (size_t *)malloc(size_len_interat);
 
   /* TODO: Can be parallelize */
   for (int i = 0; i < this->_ncol; i++) {
-    auto& col_index = this->ColIndices[i]; 
-    auto& interact = col_index.interaction;
+    auto &col_index = this->ColIndices[i];
+    auto &interact = col_index.interaction;
     auto sample_idx = col_index.sample_idx;
 
     auto cur_len_interact = interact.size();
@@ -232,10 +231,14 @@ void DesignMatrix::_allocate_cudamem() {
     }
   }
 
-  cudaMemcpy(this->_dataframe_cuda, this->_dataframe.data(), size_df, cudaMemcpyHostToDevice);
-  cudaMemcpy(this->_interaction_cuda, arr_interaction, size_interact, cudaMemcpyHostToDevice);
-  cudaMemcpy(this->_len_interact_cuda, arr_len_interact, size_len_interat, cudaMemcpyHostToDevice);
-  cudaMemcpy(this->_sample_idx_cuda, arr_sample_idx, size_sample_idx, cudaMemcpyHostToDevice);
+  cudaMemcpy(this->_dataframe_cuda, this->_dataframe.data(), size_df,
+             cudaMemcpyHostToDevice);
+  cudaMemcpy(this->_interaction_cuda, arr_interaction, size_interact,
+             cudaMemcpyHostToDevice);
+  cudaMemcpy(this->_len_interact_cuda, arr_len_interact, size_len_interat,
+             cudaMemcpyHostToDevice);
+  cudaMemcpy(this->_sample_idx_cuda, arr_sample_idx, size_sample_idx,
+             cudaMemcpyHostToDevice);
 
   free(arr_interaction);
   free(arr_len_interact);
@@ -243,11 +246,11 @@ void DesignMatrix::_allocate_cudamem() {
 }
 
 std::unique_ptr<nc::NdArray<bool>>
-DesignMatrix::getCol(size_t col_idx, size_t start_idx,
-                     size_t end_idx) const {
+DesignMatrix::getCol(size_t col_idx, size_t start_idx, size_t end_idx) const {
 
   if (this->_type != "train") {
-    std::cerr << "Should be called from DesignMatrix with type `train`" << std::endl;
+    std::cerr << "Should be called from DesignMatrix with type `train`"
+              << std::endl;
   }
   const nc::NdArray<float> &df = this->_dataframe;
   auto col_index = this->ColIndices[col_idx];
@@ -279,14 +282,13 @@ DesignMatrix::getCol(size_t col_idx, size_t start_idx,
   return res;
 }
 
-std::unique_ptr<BinSpMat> 
-DesignMatrix::getRegion(uint64_t row_start, uint64_t row_end,
-                        uint64_t col_start, uint64_t col_end) const {
+std::unique_ptr<BinSpMat> DesignMatrix::getRegion(uint64_t row_start,
+                                                  uint64_t row_end,
+                                                  uint64_t col_start,
+                                                  uint64_t col_end) const {
 
-  bool valid_row_bounds = (row_end <= this->_nrow)
-                       && (row_start <= row_end);
-  bool valid_col_bounds = (col_end <= this->_ncol)
-                       && (col_start <= col_end);
+  bool valid_row_bounds = (row_end <= this->_nrow) && (row_start <= row_end);
+  bool valid_col_bounds = (col_end <= this->_ncol) && (col_start <= col_end);
 
   if (!valid_row_bounds || !valid_col_bounds) {
     throw std::out_of_range("Index out of range");
@@ -302,11 +304,12 @@ DesignMatrix::getRegion(uint64_t row_start, uint64_t row_end,
 
   auto res = std::make_unique<BinSpMat>(row_size, col_size);
 
-  #pragma omp parallel
+#pragma omp parallel
   {
     size_t thread_id = omp_get_thread_num();
     size_t block_row_start = shifted_row_start + thread_id * block_size;
-    size_t block_row_end = shifted_row_start + std::min((thread_id + 1) * block_size, row_size);
+    size_t block_row_end =
+        shifted_row_start + std::min((thread_id + 1) * block_size, row_size);
 
     for (int row_idx = block_row_start; row_idx < block_row_end; row_idx++) {
       for (int col_idx = col_start; col_idx < col_end; col_idx++) {
@@ -324,18 +327,19 @@ DesignMatrix::getRegion(uint64_t row_start, uint64_t row_end,
   return res;
 }
 
-std::unique_ptr<BinSpMat> DesignMatrix::getBatch(const size_t start_idx, const size_t end_idx) const {
+std::unique_ptr<BinSpMat> DesignMatrix::getBatch(const size_t start_idx,
+                                                 const size_t end_idx) const {
   return getRegion(start_idx, end_idx, 0, this->_ncol);
 }
 
 bool DesignMatrix::at(const size_t row_idx, const size_t col_idx) const {
-  auto& df = this->_dataframe;
-  auto& col_index = this->ColIndices[col_idx];
-  auto& interaction = col_index.interaction;
+  auto &df = this->_dataframe;
+  auto &col_index = this->ColIndices[col_idx];
+  auto &interaction = col_index.interaction;
   auto sample_idx = col_index.sample_idx;
 
-  bool res = true; 
-  for (auto& c : interaction) {
+  bool res = true;
+  for (auto &c : interaction) {
     float thres = df(sample_idx, c);
     float val = df(row_idx, c);
     res &= (val >= thres);

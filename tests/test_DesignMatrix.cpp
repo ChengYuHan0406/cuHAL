@@ -338,6 +338,35 @@ TEST(DesignMatrixTest, fusedRegionMV) {
   EXPECT_LE(err, 1e-5);
 }
 
+TEST(DesignMatrixTest, fusedRegionMVTranspose) {
+  size_t max_order = 3;
+  const size_t nrow = 50;
+  const size_t ncol = 10; 
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+
+  auto row_start = 10, row_end = 20;
+  auto col_start = 5, col_end = 8;
+
+  auto rand_vec = nc::random::randN<float>({(uint32_t)(row_end - row_start), 1});
+
+  auto expected = nc::dot(design_matrix.getRegion(row_start,
+                                                  row_end,
+                                                  col_start,
+                                                  col_end)->full()->astype<float>().transpose(),
+                          rand_vec);
+
+  auto res = design_matrix.fusedRegionMV(row_start,
+                                         row_end,
+                                         col_start,
+                                         col_end,
+                                         rand_vec,
+                                         true);
+
+  auto err = nc::norm(*res - expected)(0, 0) / nc::norm(expected)(0, 0);
+  EXPECT_LE(err, 1e-5);
+}
+
 TEST(DesignMatrixTest, fusedRegionMVPred) {
   size_t max_order = 3;
   const size_t nrow = 100;

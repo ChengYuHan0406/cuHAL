@@ -43,6 +43,17 @@ void HAL::update_weights(const size_t idx, const float delta) {
   }
 }
 
+float _soft_threshold(float w, float lamb, float step_size) {
+  auto thres = lamb * step_size;
+  if (w > thres) {
+    return w - thres;
+  } else if (w < -thres) {
+    return w + thres;
+  } else {
+    return 0;
+  }
+}
+
 void PSCDTrainer::run_one_iteration() {
   auto outputs = this->_hal.design_matrix().fusedRegionMV(
     0, this->_hal.design_matrix().get_nrow(),
@@ -69,14 +80,14 @@ void PSCDTrainer::run_one_iteration() {
       auto cur_col = this->_hal.design_matrix().getCol(col_idx - 1);
       weight = this->_hal.weights()(col_idx - 1, 0);
       partial_grad = nc::dot(grad, cur_col->astype<float>())(0, 0);
-      partial_grad += this->_lambda * nc::sign(weight);
     } else {
       weight = this->_hal.bias();
       partial_grad = nc::sum(grad)(0, 0);
-      partial_grad += this->_lambda * nc::sign(weight);
     }
 
-    float delta = std::max(-partial_grad * this->_step_size, -weight);
+    float delta = _soft_threshold(weight - partial_grad * this->_step_size,
+                                  this->_lambda,
+                                  this->_step_size) - weight;
     deltas[thread_idx] = std::pair<size_t, float>(col_idx, delta);
   }
 
