@@ -11,6 +11,8 @@ public:
   const DesignMatrix& design_matrix() const { return this->_design_matrix; }
   const nc::NdArray<float>& labels() const { return this->_labels; }
   void update_weights(const size_t idx, const float delta);
+  void set_weights(const nc::NdArray<float>& new_weights);
+  void set_bias(const float new_bias);
   const nc::NdArray<float>& weights() const { return this->_weights; }
   float bias() const { return this->_bias; }
 private:
@@ -47,17 +49,16 @@ private:
   const nc::NdArray<float>& _label;
 };
 
-/*
 class GDTrainer {
 public:
   GDTrainer(HAL& hal,
             const Loss& loss,
             const float lambda,
             const float step_size) : _hal(hal), 
-                                      _loss(loss),
-                                      _lambda(lambda),
-                                      _step_size(step_size),
-                                      _label(hal.labels()) {} 
+                                     _loss(loss),
+                                     _lambda(lambda),
+                                     _step_size(step_size),
+                                     _label(hal.labels()) {} 
   void run(size_t batch_start, size_t batch_end);
 private:
   HAL& _hal;
@@ -66,7 +67,7 @@ private:
   const float _step_size;
   const nc::NdArray<float>& _label;
 };
-*/
+
 class Predictor {
 public:
   Predictor(const HAL& hal) : _hal(hal) {}

@@ -43,6 +43,13 @@ void HAL::update_weights(const size_t idx, const float delta) {
   }
 }
 
+void HAL::set_weights(const nc::NdArray<float>& new_weights) {
+  this->_weights = new_weights;
+}
+void HAL::set_bias(const float new_bias) {
+  this->_bias = new_bias;
+}
+
 float _soft_threshold(float w, float lamb, float step_size) {
   auto thres = lamb * step_size;
   if (w > thres) {
@@ -52,6 +59,15 @@ float _soft_threshold(float w, float lamb, float step_size) {
   } else {
     return 0;
   }
+}
+
+nc::NdArray<float>
+_soft_threshold(const nc::NdArray<float>& w, float lamb, float step_size) {
+  auto thres = lamb * step_size;
+  auto right = (w > thres).astype<float>();
+  auto left = (w < -thres).astype<float>();
+
+  return (w - thres) * right + (w + thres) * left;
 }
 
 void PSCDTrainer::run_one_iteration() {
@@ -94,6 +110,36 @@ void PSCDTrainer::run_one_iteration() {
   for (auto p : deltas) {
     this->_hal.update_weights(p.first, p.second);
   }
+}
+
+void GDTrainer::run(size_t batch_start, size_t batch_end) {
+  auto& design_matrix = this->_hal.design_matrix();
+  auto outputs = design_matrix.fusedRegionMV(
+    0, this->_hal.design_matrix().get_nrow(),
+    0, this->_hal.design_matrix().get_ncol(),
+    this->_hal.weights()
+  );
+  (*outputs) += this->_hal.bias();
+  auto grad = this->_loss.grad(*outputs, this->_label).transpose(); 
+
+  auto grad_weights = design_matrix.fusedRegionMV(
+                        batch_start,
+                        batch_end,
+                        0,
+                        design_matrix.get_ncol(),
+                        grad,
+                        true
+                      );
+
+  auto grad_bias = nc::sum(grad)(0, 0);
+
+  auto new_weights = _soft_threshold(this->_hal.weights() - this->_step_size * (*grad_weights),
+                                     this->_lambda, this->_step_size);
+  auto new_bias = _soft_threshold(this->_hal.bias() - this->_step_size * grad_bias,
+                                  this->_lambda, this->_step_size);
+
+  this->_hal.set_weights(new_weights);
+  this->_hal.set_bias(new_bias);
 }
 
 std::unique_ptr<nc::NdArray<float>> Predictor::predict(const nc::NdArray<float>& new_data) const {
