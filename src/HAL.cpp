@@ -4,6 +4,7 @@
 #include "assert.h"
 #include <NumCpp/Core/Slice.hpp>
 #include <NumCpp/Functions/clip.hpp>
+#include <NumCpp/Functions/empty.hpp>
 #include <NumCpp/Functions/maximum.hpp>
 #include <NumCpp/Functions/power.hpp>
 #include <NumCpp/Functions/sqrt.hpp>
@@ -117,13 +118,25 @@ void PSCDTrainer::run_one_iteration() {
 }
 
 void AdamTrainer::run(size_t batch_idx) {
-  this->_num_iter++;
   auto& design_matrix = this->_hal.design_matrix();
   auto outputs = this->_bdm.batchedMV(batch_idx, this->_hal.weights()); 
   (*outputs) += this->_hal.bias();
-  auto grad = this->_loss.grad(*outputs, this->_label(nc::Slice(this->_batched_start(batch_idx),
-                                                                this->_batched_end(batch_idx)),
-                                                      0)).transpose(); 
+
+  nc::NdArray<float> batched_loss_weight = nc::empty<float>(0, 0); 
+  if (this->_loss_weight.shape().rows != 0) {
+    batched_loss_weight = this->_loss_weight(
+      nc::Slice(
+        this->_batched_start(batch_idx),
+        this->_batched_end(batch_idx)
+      ), 0
+    );
+  }
+
+  auto grad = this->_loss.grad(*outputs,
+                               this->_label(nc::Slice(this->_batched_start(batch_idx),
+                                                      this->_batched_end(batch_idx)),
+                                                      0),
+                               batched_loss_weight).transpose(); 
 
   auto grad_weights = this->_bdm.batchedMV(batch_idx, grad, true);
   auto grad_bias = nc::sum(grad)(0, 0);

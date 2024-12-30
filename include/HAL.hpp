@@ -2,6 +2,7 @@
 #include "BatchedDesignMatrix.hpp"
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
+#include <NumCpp/Functions/empty.hpp>
 #include <NumCpp/Functions/zeros.hpp>
 #include <memory>
 #include "Loss.hpp"
@@ -54,14 +55,16 @@ class AdamTrainer {
 public:
   AdamTrainer(HAL& hal,
             const size_t batch_size,
-            const Loss& loss,
             const float lambda,
             const float step_size,
+            const Loss& loss,
+            const nc::NdArray<float>& loss_weight = nc::empty<float>(0, 0),
             const float beta_1 = 0.9,
             const float beta_2 = 0.999) : _hal(hal), 
                                           _batch_size(batch_size),
                                           _bdm(hal.design_matrix(), batch_size),
                                           _loss(loss),
+                                          _loss_weight(loss_weight),
                                           _lambda(lambda),
                                           _step_size(step_size),
                                           _beta_1(beta_1),
@@ -70,7 +73,6 @@ public:
                                           _v_weights(nc::zeros<float>({hal.weights().shape().rows, 1})),
                                           _u_bias(0),
                                           _v_bias(0),
-                                          _num_iter(0),
                                           _label(hal.labels()) {} 
   void run(size_t batch_idx);
   size_t len() { return this->_bdm.len(); }
@@ -79,6 +81,7 @@ private:
   const size_t _batch_size;
   BatchedDesignMatrix _bdm;
   const Loss& _loss;
+  const nc::NdArray<float> _loss_weight;
   const float _lambda;
   const float _step_size;
   const float _beta_1; 
@@ -87,7 +90,6 @@ private:
   nc::NdArray<float> _v_weights;
   float _u_bias;
   float _v_bias;
-  size_t _num_iter;
   const nc::NdArray<float>& _label;
   size_t _batched_start(size_t batch_idx) const;
   size_t _batched_end(size_t batch_idx) const;
