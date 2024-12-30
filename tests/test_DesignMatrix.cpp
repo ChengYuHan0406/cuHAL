@@ -1,9 +1,13 @@
 #include <NumCpp.hpp>
+#include <NumCpp/Core/Enums.hpp>
+#include <NumCpp/Core/Slice.hpp>
 #include <NumCpp/Functions/dot.hpp>
 #include <NumCpp/Functions/norm.hpp>
 #include <NumCpp/Functions/ones.hpp>
+#include <NumCpp/Functions/stack.hpp>
 #include <NumCpp/Functions/sum.hpp>
 #include <NumCpp/Random/randN.hpp>
+#include <cmath>
 #include <gtest/gtest.h>
 #include <iostream>
 #include <memory>
@@ -30,7 +34,7 @@ TEST(DesignMatrixTest, InitColIndices) {
   // Check order 1
   for (int i = 0; i < ncol; i++) {
     for (int s = 0; s < nrow; s++) {
-      auto col_index = design_matrix.ColIndices[col_count];
+      auto& col_index = design_matrix.ColIndices[col_count];
       EXPECT_EQ(col_index.interaction.size(), 1);
       EXPECT_EQ(col_index.interaction[0], i);
       EXPECT_EQ(col_index.sample_idx, s);
@@ -41,7 +45,7 @@ TEST(DesignMatrixTest, InitColIndices) {
   for (int i = 0; i < ncol; i++) {
     for (int j = i + 1; j < ncol; j++) {
       for (int s = 0; s < nrow; s++) {
-        auto col_index = design_matrix.ColIndices[col_count];
+        auto& col_index = design_matrix.ColIndices[col_count];
         EXPECT_EQ(col_index.interaction.size(), 2);
         EXPECT_EQ(col_index.interaction[0], i);
         EXPECT_EQ(col_index.interaction[1], j);
@@ -222,7 +226,7 @@ TEST(DesignMatrixTest, RandomDfgetBatchPred) {
 
   for (int i = 0; i < pred_design_matrix->get_nrow(); i++) {
     for (int j = 0; j < pred_design_matrix->get_ncol(); j++) {
-      auto col_index = pred_design_matrix->ColIndices[j]; 
+      auto& col_index = pred_design_matrix->ColIndices[j]; 
       auto& interact = col_index.interaction;
       auto sample_idx = col_index.sample_idx;
       
@@ -388,6 +392,157 @@ TEST(DesignMatrixTest, fusedRegionMVPred) {
                                                rand_vec);
 
   auto err = nc::norm(*res - *expected)(0, 0) / nc::norm(*expected)(0, 0);
+  EXPECT_LE(err, 1e-5);
+}
+
+TEST(DesignMatrixTest, proportion_ones) {
+  size_t max_order = 3;
+  const size_t nrow = 50;
+  const size_t ncol = 10; 
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+
+  auto full_dm = design_matrix.getBatch(0, nrow)->full();
+  auto expected = nc::mean(full_dm->astype<float>(), nc::Axis::ROW).transpose().astype<float>();
+
+  auto res = design_matrix.proportion_ones();
+  auto err = nc::norm(*res - expected)(0, 0) / nc::norm(expected)(0, 0);
+
+  EXPECT_LE(err, 1e-5);
+}
+
+TEST(DesignMatrixTest, reduce_basis) {
+  size_t max_order = 2;
+  const size_t nrow = 100;
+  const size_t ncol = 50; 
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+  auto full_dm = design_matrix.getBatch(0, nrow)->full();
+
+  auto proportion_ones = design_matrix.proportion_ones();
+  float epsilon = 0.001;
+  std::vector<nc::NdArray<bool>> vec_reduce_mat;
+
+  float min_except_zero = 2;
+  for (int c = 0; c < proportion_ones->shape().rows; c++) {
+    auto cur_val = (*proportion_ones)(c, 0);
+    if (cur_val < min_except_zero && cur_val != 0) {
+      min_except_zero = cur_val; 
+    }
+  }
+
+  float lower_bound = min_except_zero * (1 + epsilon);
+
+  for (int c = 0; c < full_dm->shape().cols; c++) {
+    if ((*proportion_ones)(c, 0) < 1.0f &&
+        (*proportion_ones)(c, 0) >= lower_bound &&
+        (*proportion_ones)(c, 0) > 0.0f
+       ) {
+      vec_reduce_mat.push_back((*full_dm)(full_dm->rSlice(), c));
+    }
+  }
+
+  auto expected_reduce_mat = nc::stack(vec_reduce_mat, nc::Axis::COL);
+
+  design_matrix.reduce_basis(epsilon);
+  auto reduce_mat = design_matrix.getBatch(0, design_matrix.get_nrow())->full();
+
+  auto err = nc::norm(*reduce_mat - expected_reduce_mat)(0, 0) / nc::norm(expected_reduce_mat)(0, 0);
+  EXPECT_LE(err, 1e-5);
+}
+
+TEST(DesignMatrixTest, fusedRegionMVAfterReduceBasis) {
+  size_t max_order = 2;
+  const size_t nrow = 100;
+  const size_t ncol = 50; 
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+  auto full_dm = design_matrix.getBatch(0, nrow)->full();
+
+  auto proportion_ones = design_matrix.proportion_ones();
+  float epsilon = 0.001;
+  std::vector<nc::NdArray<bool>> vec_reduce_mat;
+
+  float min_except_zero = 2;
+  for (int c = 0; c < proportion_ones->shape().rows; c++) {
+    auto cur_val = (*proportion_ones)(c, 0);
+    if (cur_val < min_except_zero && cur_val != 0) {
+      min_except_zero = cur_val; 
+    }
+  }
+
+  float lower_bound = min_except_zero * (1 + epsilon);
+
+  for (int c = 0; c < full_dm->shape().cols; c++) {
+    if ((*proportion_ones)(c, 0) < 1.0f &&
+        (*proportion_ones)(c, 0) >= lower_bound &&
+        (*proportion_ones)(c, 0) > 0.0f
+       ) {
+      vec_reduce_mat.push_back((*full_dm)(full_dm->rSlice(), c));
+    }
+  }
+  
+  auto expected_reduce_mat = nc::stack(vec_reduce_mat, nc::Axis::COL);
+  auto rand_vec = nc::random::randN<float>({expected_reduce_mat.shape().cols, 1});
+
+  auto expected_res = nc::dot(expected_reduce_mat.astype<float>(), rand_vec);
+  
+  design_matrix.reduce_basis(epsilon);
+  auto res = design_matrix.fusedRegionMV(0,
+                                         nrow,
+                                         0,
+                                         design_matrix.get_ncol(),
+                                         rand_vec);
+
+  auto err = nc::norm(*res - expected_res)(0, 0) / nc::norm(expected_res)(0, 0);
+  EXPECT_LE(err, 1e-5);
+}
+
+TEST(DesignMatrixTest, fusedRegionMVTransposeAfterReduceBasis) {
+  size_t max_order = 2;
+  const size_t nrow = 100;
+  const size_t ncol = 50; 
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+  auto full_dm = design_matrix.getBatch(0, nrow)->full();
+
+  auto proportion_ones = design_matrix.proportion_ones();
+  float epsilon = 0.001;
+  std::vector<nc::NdArray<bool>> vec_reduce_mat;
+
+  float min_except_zero = 2;
+  for (int c = 0; c < proportion_ones->shape().rows; c++) {
+    auto cur_val = (*proportion_ones)(c, 0);
+    if (cur_val < min_except_zero && cur_val != 0) {
+      min_except_zero = cur_val; 
+    }
+  }
+
+  float lower_bound = min_except_zero * (1 + epsilon);
+
+  for (int c = 0; c < full_dm->shape().cols; c++) {
+    if ((*proportion_ones)(c, 0) < 1.0f &&
+        (*proportion_ones)(c, 0) >= lower_bound &&
+        (*proportion_ones)(c, 0) > 0.0f
+       ) {
+      vec_reduce_mat.push_back((*full_dm)(full_dm->rSlice(), c));
+    }
+  }
+  
+  auto expected_reduce_mat = nc::stack(vec_reduce_mat, nc::Axis::COL).transpose();
+  auto rand_vec = nc::random::randN<float>({expected_reduce_mat.shape().cols, 1});
+
+  auto expected_res = nc::dot(expected_reduce_mat.astype<float>(), rand_vec);
+  
+  design_matrix.reduce_basis(epsilon);
+  auto res = design_matrix.fusedRegionMV(0,
+                                         nrow,
+                                         0,
+                                         design_matrix.get_ncol(),
+                                         rand_vec,
+                                         true);
+
+  auto err = nc::norm(*res - expected_res)(0, 0) / nc::norm(expected_res)(0, 0);
   EXPECT_LE(err, 1e-5);
 }
 

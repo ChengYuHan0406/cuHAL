@@ -1,6 +1,9 @@
 #include "DesignMatrix.hpp"
 #include "omp.h"
 #include <NumCpp.hpp>
+#include <NumCpp/Functions/logical_or.hpp>
+#include <NumCpp/Functions/where.hpp>
+#include <cassert>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -135,7 +138,7 @@ void DesignMatrix::_init_ColIndices(size_t order, int prev_idx,
 }
 
 DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
-                           size_t max_order, float sample_ratio)
+                           size_t max_order, float sample_ratio, float reduce_epsilon)
     : _dataframe(dataframe), _max_order(max_order), _type("train"), _offset(0) {
   auto df_shape = dataframe.shape();
   size_t df_nrow = df_shape.rows;
@@ -156,6 +159,10 @@ DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
 
   this->_ncol = this->ColIndices.size();
   this->_allocate_cudamem();
+
+  if (reduce_epsilon != -1) {
+    this->reduce_basis(reduce_epsilon);
+  }
 };
 
 DesignMatrix::DesignMatrix(const DesignMatrix &other) {
@@ -166,7 +173,7 @@ DesignMatrix::DesignMatrix(const DesignMatrix &other) {
   this->_ncol = other._ncol;
   this->_offset = other._offset;
   this->_sampled_row = other._sampled_row;
-  for (auto c : other.ColIndices) {
+  for (auto& c : other.ColIndices) {
     this->ColIndices.push_back({c.interaction, c.sample_idx});
   }
 };
@@ -197,7 +204,7 @@ DesignMatrix::getPredDesignMatrix(const nc::NdArray<float> &new_df) const {
   return res;
 }
 
-void DesignMatrix::_allocate_cudamem() {
+void DesignMatrix::_allocate_cudamem(bool reserve_df) {
   auto df_shape = this->_dataframe.shape();
   size_t df_nrow = df_shape.rows;
   size_t df_ncol = df_shape.cols;
@@ -207,7 +214,9 @@ void DesignMatrix::_allocate_cudamem() {
   auto size_len_interat = this->_ncol * sizeof(size_t);
   auto size_sample_idx = this->_ncol * sizeof(size_t);
 
-  cudaMalloc(&this->_dataframe_cuda, size_df);
+  if (!reserve_df) {
+    cudaMalloc(&this->_dataframe_cuda, size_df);
+  }
   cudaMalloc(&this->_interaction_cuda, size_interact);
   cudaMalloc(&this->_len_interact_cuda, size_len_interat);
   cudaMalloc(&this->_sample_idx_cuda, size_sample_idx);
@@ -231,8 +240,10 @@ void DesignMatrix::_allocate_cudamem() {
     }
   }
 
-  cudaMemcpy(this->_dataframe_cuda, this->_dataframe.data(), size_df,
-             cudaMemcpyHostToDevice);
+  if (!reserve_df) {
+    cudaMemcpy(this->_dataframe_cuda, this->_dataframe.data(), size_df,
+              cudaMemcpyHostToDevice);
+  }
   cudaMemcpy(this->_interaction_cuda, arr_interaction, size_interact,
              cudaMemcpyHostToDevice);
   cudaMemcpy(this->_len_interact_cuda, arr_len_interact, size_len_interat,
@@ -245,6 +256,60 @@ void DesignMatrix::_allocate_cudamem() {
   free(arr_sample_idx);
 }
 
+std::unique_ptr<nc::NdArray<float>> DesignMatrix::proportion_ones() const {
+  auto proportion_ones = this->fusedRegionMV(
+    0,
+    this->_nrow,
+    0,
+    this->_ncol,
+    nc::ones<float>(this->_nrow, 1),
+    true
+  );
+  (*proportion_ones) = (*proportion_ones) / (float)this->_nrow;
+
+  return proportion_ones;
+}
+
+void DesignMatrix::reduce_basis(float epsilon) {
+  assert(epsilon >= 0);
+
+  auto proportion_ones = this->proportion_ones();
+
+  #pragma omp parallel for
+  for (int c = 0; c < proportion_ones->shape().rows; c++) {
+    if ((*proportion_ones)(c, 0) == 0.0f) {
+      (*proportion_ones)(c, 0) = 1.1;
+    }
+  }
+
+  float lower_bound = nc::min(*proportion_ones)(0, 0) * (1 + epsilon);
+  auto shouldRemoved = nc::logical_or((*proportion_ones) >= 1.0f,
+                                      (*proportion_ones) < lower_bound);
+
+  #pragma omp parallel for
+  for (int c = 0; c < this->_ncol; c++) {
+    if (shouldRemoved(c, 0)) {
+      ColIndices[c]._to_be_removed = true;
+    }
+  }
+
+  auto& ColIndices = this->ColIndices;
+  ColIndices.erase(std::remove_if(ColIndices.begin(), ColIndices.end(),
+                                  [&](const ColIndex& col) mutable {
+                                    return col._to_be_removed;
+                                  }),
+                   ColIndices.end());
+
+  this->_ncol = ColIndices.size();
+
+  cudaFree(this->_interaction_cuda);
+  cudaFree(this->_len_interact_cuda);
+  cudaFree(this->_sample_idx_cuda);
+  
+  this->_allocate_cudamem(true);
+}
+
+
 std::unique_ptr<nc::NdArray<bool>>
 DesignMatrix::getCol(size_t col_idx, size_t start_idx, size_t end_idx) const {
 
@@ -253,7 +318,7 @@ DesignMatrix::getCol(size_t col_idx, size_t start_idx, size_t end_idx) const {
               << std::endl;
   }
   const nc::NdArray<float> &df = this->_dataframe;
-  auto col_index = this->ColIndices[col_idx];
+  auto& col_index = this->ColIndices[col_idx];
 
   // Check validality of col_index, return nullptr if invalid
   size_t interact_size = col_index.interaction.size();

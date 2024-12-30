@@ -9,7 +9,11 @@
 
 class HAL {
 public:
-  HAL(const nc::NdArray<float>& dataframe, nc::NdArray<float> labels, size_t max_order, float sample_ratio = 1);
+  HAL(const nc::NdArray<float>& dataframe,
+      nc::NdArray<float> labels,
+      size_t max_order,
+      float sample_ratio = 1,
+      float reduce_epsilon = -1);
   const DesignMatrix& design_matrix() const { return this->_design_matrix; }
   const nc::NdArray<float>& labels() const { return this->_labels; }
   void update_weights(const size_t idx, const float delta);

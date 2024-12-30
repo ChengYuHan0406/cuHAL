@@ -6,14 +6,21 @@
 #include <vector>
 
 struct ColIndex {
-  const std::vector<size_t> interaction;
-  const size_t sample_idx;
+  std::vector<size_t> interaction;
+  size_t sample_idx;
+
+  ColIndex(const ColIndex&) = default;
+  ColIndex& operator=(const ColIndex&) = default;
+  ColIndex(ColIndex&& other) = default;
+  ColIndex& operator=(ColIndex&& other) = default;
+
+  bool _to_be_removed = false;
 };
 
 class DesignMatrix {
 public:
   DesignMatrix(const nc::NdArray<float> &dataframe, size_t max_order,
-               float sample_ratio = 1);
+               float sample_ratio = 1, float reduce_epsilon = -1);
   DesignMatrix(const DesignMatrix &other);
   DesignMatrix(DesignMatrix &&other) = delete;
   ~DesignMatrix();
@@ -36,9 +43,13 @@ public:
 
   std::vector<struct ColIndex> ColIndices;
 
+  std::unique_ptr<nc::NdArray<float>> proportion_ones() const; 
+  void reduce_basis(float epsilon);
+
   /* For prediction */
   std::unique_ptr<DesignMatrix>
   getPredDesignMatrix(const nc::NdArray<float> &new_df) const;
+
 
 private:
   nc::NdArray<float> _dataframe;
@@ -55,7 +66,7 @@ private:
   void _init_PredDesignMatrix(const nc::NdArray<float> &new_df);
 
   /* Cuda */
-  void _allocate_cudamem();
+  void _allocate_cudamem(bool reserve_df = false);
   float *_dataframe_cuda;
   size_t *_interaction_cuda;
   size_t *_len_interact_cuda;
