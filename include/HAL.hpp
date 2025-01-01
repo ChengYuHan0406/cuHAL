@@ -66,8 +66,8 @@ public:
   
   void run(const nc::NdArray<float>& val_df, const nc::NdArray<float>& val_label);
   void solve_lambda(float cur_lambda, float prev_lambda);
-  std::unique_ptr<nc::NdArray<float>> partial_derivs();
-  float partial_deriv_bias();
+  std::unique_ptr<nc::NdArray<float>> partial_derivs(const nc::NdArray<float>& out_grad);
+  float partial_deriv_bias(const nc::NdArray<float>& out_grad);
   nc::NdArray<float> grad_wrt_outputs();
 
 private:

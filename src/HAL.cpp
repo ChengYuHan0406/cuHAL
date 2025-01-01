@@ -139,22 +139,21 @@ nc::NdArray<float> SRTrainer::grad_wrt_outputs() {
   return grad;
 }
 
-std::unique_ptr<nc::NdArray<float>> SRTrainer::partial_derivs() {
+std::unique_ptr<nc::NdArray<float>> SRTrainer::partial_derivs(const nc::NdArray<float>& out_grad) {
   auto& design_matrix = this->_hal.design_matrix();
-  auto grad = this->grad_wrt_outputs();
 
   auto partial_derivs = design_matrix.fusedRegionMV(
     0, this->_hal.design_matrix().get_nrow(),
     0, this->_hal.design_matrix().get_ncol(),
-    grad,
+    out_grad,
     true
   );
 
   return partial_derivs;
 }
 
-float SRTrainer::partial_deriv_bias() {
-  return nc::sum(this->grad_wrt_outputs())(0, 0);
+float SRTrainer::partial_deriv_bias(const nc::NdArray<float>& out_grad) {
+  return nc::sum(out_grad)(0, 0);
 }
 
 SRTrainer::SRTrainer(HAL& hal,
@@ -177,7 +176,8 @@ SRTrainer::SRTrainer(HAL& hal,
                                            _v_bias(0) {
   
   auto& design_matrix = this->_hal.design_matrix();
-  auto partial_grad = this->partial_derivs(); 
+  auto out_grad = this->grad_wrt_outputs();
+  auto partial_grad = this->partial_derivs(out_grad); 
   this->_lambda_max = nc::max(nc::abs(*partial_grad))(0, 0);
   this->_lambda_min = this->_epsilon * this->_lambda_max;
   this->_lambda_step = std::pow(this->_epsilon,
@@ -209,17 +209,19 @@ void SRTrainer::solve_lambda(float cur_lambda, float prev_lambda) {
 
   auto thres = 2 * cur_lambda - prev_lambda;
   auto nonzeros = (this->_hal.weights() != 0.0f);
-  auto strong_set = (nc::abs(*this->partial_derivs()) > thres);
+  auto out_grad = this->grad_wrt_outputs();
+  auto strong_set = (nc::abs(*this->partial_derivs(out_grad)) > thres);
   strong_set = nc::logical_or(strong_set, nonzeros);
-  bool include_bias = (this->_hal.bias() != 0.0f ||
-                       this->partial_deriv_bias() > thres);
+  bool include_bias = false;
 
   bool KKT_holds = false;
   
   int iters = 0;
   while (!KKT_holds && iters++ < this->_max_iters) {
+    auto out_grad = this->grad_wrt_outputs();
+
     if (include_bias) {
-      auto cur_grad = this->partial_deriv_bias();
+      auto cur_grad = this->partial_deriv_bias(out_grad);
 
       this->_u_bias = this->_beta_1 * this->_u_bias + (1 - this->_beta_1) * cur_grad;
       this->_v_bias = this->_beta_2 * this->_v_bias + (1 - this->_beta_2) * nc::square(cur_grad);
@@ -234,7 +236,6 @@ void SRTrainer::solve_lambda(float cur_lambda, float prev_lambda) {
     auto len_strong_set = nc::sum(strong_set.astype<int>())(0, 0); 
 
     if (len_strong_set) {
-      auto out_grad = this->grad_wrt_outputs();
       auto colidx_subset
           = nc::arange<int>(0, design_matrix.get_ncol())[strong_set].reshape(1, len_strong_set);
       auto partial_grad = design_matrix.fusedColSubsetMV(out_grad, colidx_subset, true);
@@ -259,8 +260,9 @@ void SRTrainer::solve_lambda(float cur_lambda, float prev_lambda) {
     }
 
     /* Check KKT */
-    auto partial_deriv_weight = this->partial_derivs();
-    auto partial_deriv_bias = this->partial_deriv_bias();
+    out_grad = this->grad_wrt_outputs();
+    auto partial_deriv_weight = this->partial_derivs(out_grad);
+    auto partial_deriv_bias = this->partial_deriv_bias(out_grad);
 
     auto cond_weight = (nc::abs(*partial_deriv_weight) > cur_lambda);
     auto cond_bias = std::abs(partial_deriv_bias) > cur_lambda;
