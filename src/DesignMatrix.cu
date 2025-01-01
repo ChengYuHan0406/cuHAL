@@ -1,9 +1,6 @@
 #include "DesignMatrix.hpp"
 #include "omp.h"
 #include <NumCpp.hpp>
-#include <NumCpp/Functions/arange.hpp>
-#include <NumCpp/Functions/logical_or.hpp>
-#include <NumCpp/Functions/where.hpp>
 #include <cassert>
 #include <cfloat>
 #include <cmath>
@@ -21,7 +18,7 @@
                        size_t col_end, float *x, float *y, float *dataframe,   \
                        size_t *interaction, size_t *len_interact,              \
                        size_t *sample_idx, size_t df_ncol, size_t max_order,   \
-                       size_t *col_perm) {                                     \
+                       int *col_perm) {                                        \
                                                                                \
     __shared__ float partial_sums[WARPSIZE];                                   \
                                                                                \
@@ -104,9 +101,9 @@ DesignMatrix::fusedRegionMV(size_t row_start, size_t row_end, size_t col_start,
 
   auto res = std::make_unique<nc::NdArray<float>>(res_len, 1);
 
-  size_t *col_perm_cuda = nullptr;
+  int *col_perm_cuda = nullptr;
   if (has_col_perm) {
-    auto size_col_perm = ncol * sizeof(size_t);
+    auto size_col_perm = ncol * sizeof(int);
     cudaMalloc(&col_perm_cuda, size_col_perm);
     cudaMemcpy(col_perm_cuda, col_perm.data(), size_col_perm,
                cudaMemcpyHostToDevice);
@@ -145,6 +142,14 @@ DesignMatrix::fusedRegionMV(size_t row_start, size_t row_end, size_t col_start,
   }
 
   return res;
+}
+
+std::unique_ptr<nc::NdArray<float>>
+DesignMatrix::fusedColSubsetMV(const nc::NdArray<float> &x,
+                               const nc::NdArray<int> &colidx_subset,
+                               bool transpose) const {
+  return this->fusedRegionMV(0, this->_nrow, 0, colidx_subset.shape().cols, x,
+                             transpose, colidx_subset);
 }
 
 void DesignMatrix::_init_ColIndices(size_t order, int prev_idx,
@@ -300,7 +305,7 @@ void DesignMatrix::reduce_basis(float epsilon) {
 
   auto proportion_ones = this->proportion_ones();
 
-#pragma omp parallel for
+  #pragma omp parallel for
   for (int c = 0; c < proportion_ones->shape().rows; c++) {
     if ((*proportion_ones)(c, 0) == 0.0f) {
       (*proportion_ones)(c, 0) = 1.1;
@@ -311,7 +316,7 @@ void DesignMatrix::reduce_basis(float epsilon) {
   auto shouldRemoved = nc::logical_or((*proportion_ones) >= 1.0f,
                                       (*proportion_ones) < lower_bound);
 
-#pragma omp parallel for
+  #pragma omp parallel for
   for (int c = 0; c < this->_ncol; c++) {
     if (shouldRemoved(c, 0)) {
       ColIndices[c]._to_be_removed = true;
@@ -393,7 +398,7 @@ std::unique_ptr<BinSpMat> DesignMatrix::getRegion(uint64_t row_start,
 
   auto res = std::make_unique<BinSpMat>(row_size, col_size);
 
-#pragma omp parallel
+  #pragma omp parallel
   {
     size_t thread_id = omp_get_thread_num();
     size_t block_row_start = shifted_row_start + thread_id * block_size;

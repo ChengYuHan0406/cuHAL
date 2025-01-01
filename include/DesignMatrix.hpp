@@ -36,6 +36,10 @@ public:
                 size_t col_end, const nc::NdArray<float> &x,
                 bool transpose = false,
                 const nc::NdArray<int>& col_perm = {-1}) const;
+  std::unique_ptr<nc::NdArray<float>>
+  fusedColSubsetMV(const nc::NdArray<float>& x,
+                   const nc::NdArray<int>& colidx_subset,
+                   bool transpose = false) const;
 
   size_t get_nrow() const { return this->_nrow; }
   size_t get_ncol() const { return this->_ncol; }

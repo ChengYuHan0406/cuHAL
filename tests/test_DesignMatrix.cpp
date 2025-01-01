@@ -6,6 +6,7 @@
 #include <NumCpp/Functions/ones.hpp>
 #include <NumCpp/Functions/stack.hpp>
 #include <NumCpp/Functions/sum.hpp>
+#include <NumCpp/Random/randInt.hpp>
 #include <NumCpp/Random/randN.hpp>
 #include <cmath>
 #include <gtest/gtest.h>
@@ -541,6 +542,58 @@ TEST(DesignMatrixTest, fusedRegionMVTransposeAfterReduceBasis) {
                                          design_matrix.get_ncol(),
                                          rand_vec,
                                          true);
+
+  auto err = nc::norm(*res - expected_res)(0, 0) / nc::norm(expected_res)(0, 0);
+  EXPECT_LE(err, 1e-5);
+}
+
+TEST(DesignMatrixTest, fusedColSubsetMV) {
+  size_t max_order = 2;
+  const size_t nrow = 100;
+  const size_t ncol = 50; 
+  const size_t size_colsubset = 10;
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+  auto full_dm = design_matrix.getBatch(0, nrow)->full();
+  auto rand_vec = nc::random::randN<float>({size_colsubset, 1});
+
+  auto dm_ncol = design_matrix.get_ncol();
+  auto rand_colidx = nc::random::randInt<int>({1, size_colsubset}, 0, dm_ncol);
+
+  std::vector<nc::NdArray<bool>> vec_cols;
+  for (int c = 0; c < size_colsubset; c++) {
+    vec_cols.push_back((*full_dm)(full_dm->rSlice(), rand_colidx(0, c)));
+  }
+
+  auto expected_dm = nc::stack(vec_cols, nc::Axis::COL);
+  auto expected_res = nc::dot(expected_dm.astype<float>(), rand_vec);
+  auto res = design_matrix.fusedColSubsetMV(rand_vec, rand_colidx);
+
+  auto err = nc::norm(*res - expected_res)(0, 0) / nc::norm(expected_res)(0, 0);
+  EXPECT_LE(err, 1e-5);
+}
+
+TEST(DesignMatrixTest, fusedColSubsetMVTranspose) {
+  size_t max_order = 2;
+  const size_t nrow = 100;
+  const size_t ncol = 50; 
+  const size_t size_colsubset = 10;
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+  auto full_dm = design_matrix.getBatch(0, nrow)->full();
+  auto rand_vec = nc::random::randN<float>({nrow, 1});
+
+  auto dm_ncol = design_matrix.get_ncol();
+  auto rand_colidx = nc::random::randInt<int>({1, size_colsubset}, 0, dm_ncol);
+
+  std::vector<nc::NdArray<bool>> vec_cols;
+  for (int c = 0; c < size_colsubset; c++) {
+    vec_cols.push_back((*full_dm)(full_dm->rSlice(), rand_colidx(0, c)));
+  }
+
+  auto expected_dm = nc::stack(vec_cols, nc::Axis::COL);
+  auto expected_res = nc::dot(expected_dm.astype<float>().transpose(), rand_vec);
+  auto res = design_matrix.fusedColSubsetMV(rand_vec, rand_colidx, true);
 
   auto err = nc::norm(*res - expected_res)(0, 0) / nc::norm(expected_res)(0, 0);
   EXPECT_LE(err, 1e-5);
