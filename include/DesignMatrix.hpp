@@ -34,7 +34,8 @@ public:
   std::unique_ptr<nc::NdArray<float>>
   fusedRegionMV(size_t row_start, size_t row_end, size_t col_start,
                 size_t col_end, const nc::NdArray<float> &x,
-                bool transpose = false) const;
+                bool transpose = false,
+                const nc::NdArray<int>& col_perm = {-1}) const;
 
   size_t get_nrow() const { return this->_nrow; }
   size_t get_ncol() const { return this->_ncol; }
