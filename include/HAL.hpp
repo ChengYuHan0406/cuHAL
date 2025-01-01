@@ -60,7 +60,9 @@ public:
   SRTrainer(HAL& hal,
             const Loss& loss,
             const float step_size,
-            const size_t max_iters = 5);
+            const size_t max_iters = 5,
+            const float beta_1 = 0.9,
+            const float beta_2 = 0.999);
   
   void run(const nc::NdArray<float>& val_df, const nc::NdArray<float>& val_label);
   void solve_lambda(float cur_lambda, float prev_lambda);
@@ -79,6 +81,13 @@ private:
   size_t _num_lambdas;
   float _lambda_step;
   size_t _max_iters;
+
+  const float _beta_1; 
+  const float _beta_2; 
+  nc::NdArray<float> _u_weights;
+  nc::NdArray<float> _v_weights;
+  float _u_bias;
+  float _v_bias;
 };
 
 class AdamTrainer {

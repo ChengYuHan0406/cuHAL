@@ -3,11 +3,13 @@
 #include <NumCpp.hpp>
 #include "assert.h"
 #include <NumCpp/Core/Slice.hpp>
+#include <NumCpp/Functions/arange.hpp>
 #include <NumCpp/Functions/clip.hpp>
 #include <NumCpp/Functions/empty.hpp>
 #include <NumCpp/Functions/logical_or.hpp>
 #include <NumCpp/Functions/maximum.hpp>
 #include <NumCpp/Functions/mean.hpp>
+#include <NumCpp/Functions/norm.hpp>
 #include <NumCpp/Functions/power.hpp>
 #include <NumCpp/Functions/sqrt.hpp>
 #include <NumCpp/Functions/square.hpp>
@@ -158,13 +160,21 @@ float SRTrainer::partial_deriv_bias() {
 SRTrainer::SRTrainer(HAL& hal,
                      const Loss& loss,
                      const float step_size,
-                     const size_t max_iters) : _hal(hal), 
-                                              _loss(loss),
-                                              _step_size(step_size),
-                                              _max_iters(max_iters),
-                                              _label(hal.labels()),
-                                              _epsilon(1e-3),
-                                              _num_lambdas(100) {
+                     const size_t max_iters,
+                     const float beta_1,
+                     const float beta_2) : _hal(hal), 
+                                           _loss(loss),
+                                           _step_size(step_size),
+                                           _max_iters(max_iters),
+                                           _label(hal.labels()),
+                                           _epsilon(1e-6),
+                                           _num_lambdas(100),
+                                           _beta_1(beta_1),
+                                           _beta_2(beta_2),
+                                           _u_weights(nc::zeros<float>({hal.weights().shape().rows, 1})),
+                                           _v_weights(nc::zeros<float>({hal.weights().shape().rows, 1})),
+                                           _u_bias(0),
+                                           _v_bias(0) {
   
   auto& design_matrix = this->_hal.design_matrix();
   auto partial_grad = this->partial_derivs(); 
@@ -208,29 +218,44 @@ void SRTrainer::solve_lambda(float cur_lambda, float prev_lambda) {
   
   int iters = 0;
   while (!KKT_holds && iters++ < this->_max_iters) {
-    /* Cyclic coordinate descent on strong set */
     if (include_bias) {
-      float delta = _soft_threshold(this->_hal.bias() - this->partial_deriv_bias() * this->_step_size,
-                                    cur_lambda,
-                                    this->_step_size) - this->_hal.bias();
+      auto cur_grad = this->partial_deriv_bias();
 
-      this->_hal.update_weights(0, delta);
+      this->_u_bias = this->_beta_1 * this->_u_bias + (1 - this->_beta_1) * cur_grad;
+      this->_v_bias = this->_beta_2 * this->_v_bias + (1 - this->_beta_2) * nc::square(cur_grad);
+
+      auto delta_bias = -(this->_step_size * this->_u_bias) / (nc::sqrt(this->_v_bias) + (float)1e-9);
+      auto new_bias = _soft_threshold(this->_hal.bias() + delta_bias,
+                                      cur_lambda, this->_step_size);
+
+      this->_hal.set_bias(new_bias);
     }
 
-    for (int c = 0; c < design_matrix.get_ncol(); c++) {
-      if (!strong_set(c, 0)) {
-        continue;
+    auto len_strong_set = nc::sum(strong_set.astype<int>())(0, 0); 
+
+    if (len_strong_set) {
+      auto out_grad = this->grad_wrt_outputs();
+      auto colidx_subset
+          = nc::arange<int>(0, design_matrix.get_ncol())[strong_set].reshape(1, len_strong_set);
+      auto partial_grad = design_matrix.fusedColSubsetMV(out_grad, colidx_subset, true);
+
+      for (int i = 0; i < len_strong_set; i++) {
+        auto cur_colidx = colidx_subset(0, i);
+        auto cur_grad = (*partial_grad)(cur_colidx, 0);
+        auto cur_u = this->_u_weights(cur_colidx, 0);
+        auto cur_v = this->_v_weights(cur_colidx, 0);
+
+        this->_u_weights(cur_colidx, 0)
+          = this->_beta_1 * cur_u + (1 - this->_beta_1) * cur_grad;
+        this->_v_weights(cur_colidx, 0)
+          = this->_beta_2 * cur_v + (1 - this->_beta_2) * nc::square(cur_grad);
       }
 
-      auto cur_col = design_matrix.getCol(c);
-      auto weight = this->_hal.weights()(c, 0);
-      auto partial_grad = nc::dot(this->grad_wrt_outputs(), cur_col->astype<float>())(0, 0);
+      auto delta_weights = -(this->_step_size * this->_u_weights) / (nc::sqrt(this->_v_weights) + (float)1e-9);
+      auto new_weights = _soft_threshold(this->_hal.weights() + delta_weights,
+                                        cur_lambda, this->_step_size);
 
-      float delta = _soft_threshold(weight - partial_grad * this->_step_size,
-                                    cur_lambda,
-                                    this->_step_size) - weight;
-
-      this->_hal.update_weights(c + 1, delta);
+      this->_hal.set_weights(new_weights);
     }
 
     /* Check KKT */
@@ -240,10 +265,12 @@ void SRTrainer::solve_lambda(float cur_lambda, float prev_lambda) {
     auto cond_weight = (nc::abs(*partial_deriv_weight) > cur_lambda);
     auto cond_bias = std::abs(partial_deriv_bias) > cur_lambda;
 
-    if (nc::sum(cond_weight)(0, 0) != 0 || cond_bias) {
+    if (nc::sum(cond_weight.astype<int>())(0, 0) != 0 || cond_bias) {
       strong_set = nc::logical_or(strong_set, cond_weight);
+      include_bias = cond_bias;
     } else {
       KKT_holds = true;
+      std::cout << "KKT holds" << std::endl;
     }
   }
 }
