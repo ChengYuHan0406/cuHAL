@@ -156,7 +156,8 @@ void DesignMatrix::_init_ColIndices(size_t order, int prev_idx,
                                     std::vector<size_t> &interact) {
   if (order == 0) {
     auto num_sampled_row = this->_sampled_row.shape().cols;
-    for (int i = 0; i < num_sampled_row; i++) {
+    int interact_order = interact.size();
+    for (int i = 0; i < num_sampled_row; i += std::pow(2, interact_order - 1)) {
       int row_idx = this->_sampled_row(0, i);
       this->ColIndices.push_back(
           ColIndex{interact, static_cast<size_t>(row_idx)});
