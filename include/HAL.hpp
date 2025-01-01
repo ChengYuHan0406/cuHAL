@@ -55,6 +55,32 @@ private:
   const nc::NdArray<float>& _label;
 };
 
+class SRTrainer {
+public:
+  SRTrainer(HAL& hal,
+            const Loss& loss,
+            const float step_size,
+            const size_t max_iters = 5);
+  
+  void run(const nc::NdArray<float>& val_df, const nc::NdArray<float>& val_label);
+  void solve_lambda(float cur_lambda, float prev_lambda);
+  std::unique_ptr<nc::NdArray<float>> partial_derivs();
+  float partial_deriv_bias();
+  nc::NdArray<float> grad_wrt_outputs();
+
+private:
+  HAL& _hal;
+  const Loss& _loss;
+  const float _step_size;
+  const nc::NdArray<float>& _label;
+  float _lambda_max;
+  float _lambda_min;
+  float _epsilon;
+  size_t _num_lambdas;
+  float _lambda_step;
+  size_t _max_iters;
+};
+
 class AdamTrainer {
 public:
   AdamTrainer(HAL& hal,

@@ -5,13 +5,17 @@
 #include <NumCpp/Core/Slice.hpp>
 #include <NumCpp/Functions/clip.hpp>
 #include <NumCpp/Functions/empty.hpp>
+#include <NumCpp/Functions/logical_or.hpp>
 #include <NumCpp/Functions/maximum.hpp>
+#include <NumCpp/Functions/mean.hpp>
 #include <NumCpp/Functions/power.hpp>
 #include <NumCpp/Functions/sqrt.hpp>
 #include <NumCpp/Functions/square.hpp>
+#include <NumCpp/Functions/sum.hpp>
 #include <NumCpp/Functions/zeros.hpp>
 #include <cmath>
 #include "omp.h"
+#include <cstdlib>
 #include <stdlib.h> 
 #include <time.h>
 
@@ -115,6 +119,132 @@ void PSCDTrainer::run_one_iteration() {
 
   for (auto p : deltas) {
     this->_hal.update_weights(p.first, p.second);
+  }
+}
+
+nc::NdArray<float> SRTrainer::grad_wrt_outputs() {
+  auto& design_matrix = this->_hal.design_matrix();
+  auto& weight =  this->_hal.weights();
+
+  auto outputs = design_matrix.fusedRegionMV(
+    0, this->_hal.design_matrix().get_nrow(),
+    0, this->_hal.design_matrix().get_ncol(),
+    weight
+  );
+  (*outputs) += this->_hal.bias();
+  auto grad = this->_loss.grad(*outputs, this->_label).transpose(); 
+
+  return grad;
+}
+
+std::unique_ptr<nc::NdArray<float>> SRTrainer::partial_derivs() {
+  auto& design_matrix = this->_hal.design_matrix();
+  auto grad = this->grad_wrt_outputs();
+
+  auto partial_derivs = design_matrix.fusedRegionMV(
+    0, this->_hal.design_matrix().get_nrow(),
+    0, this->_hal.design_matrix().get_ncol(),
+    grad,
+    true
+  );
+
+  return partial_derivs;
+}
+
+float SRTrainer::partial_deriv_bias() {
+  return nc::sum(this->grad_wrt_outputs())(0, 0);
+}
+
+SRTrainer::SRTrainer(HAL& hal,
+                     const Loss& loss,
+                     const float step_size,
+                     const size_t max_iters) : _hal(hal), 
+                                              _loss(loss),
+                                              _step_size(step_size),
+                                              _max_iters(max_iters),
+                                              _label(hal.labels()),
+                                              _epsilon(1e-3),
+                                              _num_lambdas(100) {
+  
+  auto& design_matrix = this->_hal.design_matrix();
+  auto partial_grad = this->partial_derivs(); 
+  this->_lambda_max = nc::max(nc::abs(*partial_grad))(0, 0);
+  this->_lambda_min = this->_epsilon * this->_lambda_max;
+  this->_lambda_step = std::pow(this->_epsilon,
+                                -(1 / (float)(this->_num_lambdas - 1)));
+} 
+
+void SRTrainer::run(const nc::NdArray<float>& val_df,
+                    const nc::NdArray<float>& val_label) {
+  auto predictor = Predictor(this->_hal);
+
+  float cur_lambda = this->_lambda_max;
+  float prev_lambda = 0;
+
+  for (int i = 0; i < this->_num_lambdas; i++) {
+    std::cout << "Lambda = " << cur_lambda << std::endl;
+    this->solve_lambda(cur_lambda, prev_lambda);
+
+    auto val_out = *predictor.predict(val_df);
+    auto val_loss = this->_loss.compute(val_out, val_label);
+    std::cout << "Validation Loss: " << val_loss << std::endl;
+
+    prev_lambda = cur_lambda;
+    cur_lambda = prev_lambda / this->_lambda_step;
+  }
+}
+
+void SRTrainer::solve_lambda(float cur_lambda, float prev_lambda) {
+  auto& design_matrix = this->_hal.design_matrix();
+
+  auto thres = 2 * cur_lambda - prev_lambda;
+  auto nonzeros = (this->_hal.weights() != 0.0f);
+  auto strong_set = (nc::abs(*this->partial_derivs()) > thres);
+  strong_set = nc::logical_or(strong_set, nonzeros);
+  bool include_bias = (this->_hal.bias() != 0.0f ||
+                       this->partial_deriv_bias() > thres);
+
+  bool KKT_holds = false;
+  
+  int iters = 0;
+  while (!KKT_holds && iters++ < this->_max_iters) {
+    /* Cyclic coordinate descent on strong set */
+    if (include_bias) {
+      float delta = _soft_threshold(this->_hal.bias() - this->partial_deriv_bias() * this->_step_size,
+                                    cur_lambda,
+                                    this->_step_size) - this->_hal.bias();
+
+      this->_hal.update_weights(0, delta);
+    }
+
+    for (int c = 0; c < design_matrix.get_ncol(); c++) {
+      if (!strong_set(c, 0)) {
+        continue;
+      }
+
+      auto cur_col = design_matrix.getCol(c);
+      auto weight = this->_hal.weights()(c, 0);
+      auto partial_grad = nc::dot(this->grad_wrt_outputs(), cur_col->astype<float>())(0, 0);
+
+      float delta = _soft_threshold(weight - partial_grad * this->_step_size,
+                                    cur_lambda,
+                                    this->_step_size) - weight;
+
+      this->_hal.update_weights(c + 1, delta);
+    }
+
+    /* Check KKT */
+    auto partial_deriv_weight = this->partial_derivs();
+    auto partial_deriv_bias = this->partial_deriv_bias();
+
+    auto cond_weight = (nc::abs(*partial_deriv_weight) > cur_lambda);
+    auto cond_bias = std::abs(partial_deriv_bias) > cur_lambda;
+
+    if (nc::sum(cond_weight)(0, 0) != 0 || cond_bias) {
+      strong_set = nc::logical_or(strong_set, cond_weight);
+    } else {
+      KKT_holds = true;
+    }
   }
 }
 
