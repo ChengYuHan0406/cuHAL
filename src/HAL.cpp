@@ -2,19 +2,6 @@
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
 #include "assert.h"
-#include <NumCpp/Core/Slice.hpp>
-#include <NumCpp/Functions/arange.hpp>
-#include <NumCpp/Functions/clip.hpp>
-#include <NumCpp/Functions/empty.hpp>
-#include <NumCpp/Functions/logical_or.hpp>
-#include <NumCpp/Functions/maximum.hpp>
-#include <NumCpp/Functions/mean.hpp>
-#include <NumCpp/Functions/norm.hpp>
-#include <NumCpp/Functions/power.hpp>
-#include <NumCpp/Functions/sqrt.hpp>
-#include <NumCpp/Functions/square.hpp>
-#include <NumCpp/Functions/sum.hpp>
-#include <NumCpp/Functions/zeros.hpp>
 #include <cmath>
 #include "omp.h"
 #include <cstdlib>
@@ -24,7 +11,7 @@
 std::unique_ptr<nc::NdArray<float>> batch_binspmv(BatchedDesignMatrix& A, const nc::NdArray<float>& x);
 
 HAL::HAL(const nc::NdArray<float>& dataframe,
-         nc::NdArray<float> labels,
+         const nc::NdArray<float>& labels,
          size_t max_order,
          float sample_ratio,
          float reduce_epsilon) : _design_matrix(dataframe, max_order, sample_ratio, reduce_epsilon),
@@ -134,7 +121,7 @@ nc::NdArray<float> SRTrainer::grad_wrt_outputs() {
     weight
   );
   (*outputs) += this->_hal.bias();
-  auto grad = this->_loss.grad(*outputs, this->_label).transpose(); 
+  auto grad = this->_loss.grad(*outputs, this->_label, this->_loss_weight).transpose(); 
 
   return grad;
 }
@@ -157,13 +144,15 @@ float SRTrainer::partial_deriv_bias(const nc::NdArray<float>& out_grad) {
 }
 
 SRTrainer::SRTrainer(HAL& hal,
-                     const Loss& loss,
                      const float step_size,
+                     const Loss& loss,
+                     const nc::NdArray<float> loss_weight,
                      const size_t max_iters,
                      const float beta_1,
                      const float beta_2) : _hal(hal), 
                                            _loss(loss),
                                            _step_size(step_size),
+                                           _loss_weight(loss_weight),
                                            _max_iters(max_iters),
                                            _label(hal.labels()),
                                            _epsilon(1e-6),
@@ -185,23 +174,42 @@ SRTrainer::SRTrainer(HAL& hal,
 } 
 
 void SRTrainer::run(const nc::NdArray<float>& val_df,
-                    const nc::NdArray<float>& val_label) {
+                    const nc::NdArray<float>& val_label,
+                    const nc::NdArray<float>& val_loss_weight) {
   auto predictor = Predictor(this->_hal);
 
   float cur_lambda = this->_lambda_max;
   float prev_lambda = 0;
+
+  float best_loss = std::numeric_limits<float>::max();
+  float best_lambda;
+  nc::NdArray<float> best_weights; 
+  float best_bias;
 
   for (int i = 0; i < this->_num_lambdas; i++) {
     std::cout << "Lambda = " << cur_lambda << std::endl;
     this->solve_lambda(cur_lambda, prev_lambda);
 
     auto val_out = *predictor.predict(val_df);
-    auto val_loss = this->_loss.compute(val_out, val_label);
+    auto val_loss = this->_loss.compute(val_out, val_label, val_loss_weight);
     std::cout << "Validation Loss: " << val_loss << std::endl;
+
+    if (val_loss < best_loss) {
+      best_loss = val_loss;
+      best_weights = this->_hal.weights();
+      best_bias = this->_hal.bias();
+      best_lambda = cur_lambda;
+    }
 
     prev_lambda = cur_lambda;
     cur_lambda = prev_lambda / this->_lambda_step;
   }
+
+  this->_hal.set_weights(best_weights);
+  this->_hal.set_bias(best_bias);
+
+  std::cout << "Best Lambda: " << best_lambda << std::endl;
+  std::cout << "Best Validation Loss: " << best_loss << std::endl;
 }
 
 void SRTrainer::solve_lambda(float cur_lambda, float prev_lambda) {

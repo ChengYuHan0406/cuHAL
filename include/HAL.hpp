@@ -10,7 +10,7 @@
 class HAL {
 public:
   HAL(const nc::NdArray<float>& dataframe,
-      nc::NdArray<float> labels,
+      const nc::NdArray<float>& labels,
       size_t max_order,
       float sample_ratio = 1,
       float reduce_epsilon = -1);
@@ -58,13 +58,17 @@ private:
 class SRTrainer {
 public:
   SRTrainer(HAL& hal,
-            const Loss& loss,
             const float step_size,
+            const Loss& loss,
+            const nc::NdArray<float> loss_weight = nc::empty<float>({0, 0}),
             const size_t max_iters = 5,
             const float beta_1 = 0.9,
             const float beta_2 = 0.999);
   
-  void run(const nc::NdArray<float>& val_df, const nc::NdArray<float>& val_label);
+  void run(const nc::NdArray<float>& val_df,
+           const nc::NdArray<float>& val_label,
+           const nc::NdArray<float>& val_loss_weight = nc::empty<float>(0, 0));
+
   void solve_lambda(float cur_lambda, float prev_lambda);
   std::unique_ptr<nc::NdArray<float>> partial_derivs(const nc::NdArray<float>& out_grad);
   float partial_deriv_bias(const nc::NdArray<float>& out_grad);
@@ -73,6 +77,7 @@ public:
 private:
   HAL& _hal;
   const Loss& _loss;
+  const nc::NdArray<float> _loss_weight;
   const float _step_size;
   const nc::NdArray<float>& _label;
   float _lambda_max;
