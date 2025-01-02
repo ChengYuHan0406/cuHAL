@@ -205,11 +205,13 @@ void SRTrainer::run(const nc::NdArray<float>& val_df,
     cur_lambda = prev_lambda / this->_lambda_step;
   }
 
+  std::cout << "========================== Results =============================" << std::endl;
+  std::cout << "Best Lambda: " << best_lambda << std::endl;
+  std::cout << "Best Validation Loss: " << best_loss << std::endl << std::endl;
+  std::cout << "Saving HAL Weights..." << std::endl;
+
   this->_hal.set_weights(best_weights);
   this->_hal.set_bias(best_bias);
-
-  std::cout << "Best Lambda: " << best_lambda << std::endl;
-  std::cout << "Best Validation Loss: " << best_loss << std::endl;
 }
 
 void SRTrainer::solve_lambda(float cur_lambda, float prev_lambda) {

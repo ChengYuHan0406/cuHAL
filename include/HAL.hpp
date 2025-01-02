@@ -2,8 +2,6 @@
 #include "BatchedDesignMatrix.hpp"
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
-#include <NumCpp/Functions/empty.hpp>
-#include <NumCpp/Functions/zeros.hpp>
 #include <memory>
 #include "Loss.hpp"
 

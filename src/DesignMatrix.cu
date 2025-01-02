@@ -189,17 +189,23 @@ DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
     this->_sampled_row =
         nc::random::randInt<int>({1, num_sampled_row}, 0, this->_nrow);
   }
+
+  std::cout << "Initializing ColIndices..." << std::endl;
   for (int o = 1; o <= max_order; o++) {
     std::vector<size_t> interact;
     this->_init_ColIndices(o, -1, interact);
   }
 
   this->_ncol = this->ColIndices.size();
+  std::cout << "Allocating Cuda Memory..." << std::endl;
   this->_allocate_cudamem();
 
   if (reduce_epsilon != -1) {
+    std::cout << "Reducing Basis.." << std::endl; 
     this->reduce_basis(reduce_epsilon);
   }
+
+  std::cout << "Shape of DesignMatrix: " << this->_nrow << " x " << this->_ncol << std::endl;
 };
 
 DesignMatrix::DesignMatrix(const DesignMatrix &other) {
@@ -262,7 +268,7 @@ void DesignMatrix::_allocate_cudamem(bool reserve_df) {
   size_t *arr_len_interact = (size_t *)malloc(size_len_interat);
   size_t *arr_sample_idx = (size_t *)malloc(size_len_interat);
 
-  /* TODO: Can be parallelize */
+  #pragma omp parallel for
   for (int i = 0; i < this->_ncol; i++) {
     auto &col_index = this->ColIndices[i];
     auto &interact = col_index.interaction;
