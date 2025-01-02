@@ -332,6 +332,9 @@ void DesignMatrix::reduce_basis(float epsilon) {
                    ColIndices.end());
 
   this->_ncol = ColIndices.size();
+  if (this->_ncol == 0) {
+    std::cerr << "[Warning] Reduce Basis failed: DesignMatrix has no columns left after reduction!" << std::endl;
+  }
 
   cudaFree(this->_interaction_cuda);
   cudaFree(this->_len_interact_cuda);
