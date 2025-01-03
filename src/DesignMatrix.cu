@@ -157,8 +157,21 @@ void DesignMatrix::_init_ColIndices(size_t order, int prev_idx,
   if (order == 0) {
     auto num_sampled_row = this->_sampled_row.shape().cols;
     int interact_order = interact.size();
+
+    CutPoints cut_points;
     for (int i = 0; i < num_sampled_row; i += std::pow(2, interact_order - 1)) {
       int row_idx = this->_sampled_row(0, i);
+
+      /* Omit duplicate cut_points */
+      std::vector<float> cur_cut_point;
+      for (auto c : interact) {
+        cur_cut_point.push_back(this->_dataframe(row_idx, c));
+      }
+      if (cut_points.find(cur_cut_point) != cut_points.end()) {
+        continue;
+      }
+      cut_points.insert(cur_cut_point);
+
       this->ColIndices.push_back(
           ColIndex{interact, static_cast<size_t>(row_idx)});
     }

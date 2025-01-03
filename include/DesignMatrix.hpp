@@ -3,6 +3,7 @@
 #include <NumCpp.hpp>
 #include <cstddef>
 #include <memory>
+#include <unordered_set>
 #include <vector>
 
 struct ColIndex {
@@ -77,3 +78,18 @@ private:
   size_t *_len_interact_cuda;
   size_t *_sample_idx_cuda;
 };
+
+/* The `VectorHash` implementation is borrowed from 
+ * https://stackoverflow.com/questions/29855908/c-unordered-set-of-vectors */
+struct VectorHash {
+    size_t operator()(const std::vector<float>& v) const {
+        std::hash<float> hasher;
+        size_t seed = 0;
+        for (int i : v) {
+            seed ^= hasher(i) + 0x9e3779b9 + (seed<<6) + (seed>>2);
+        }
+        return seed;
+    }
+};
+
+using CutPoints = std::unordered_set<std::vector<float>, VectorHash>;
