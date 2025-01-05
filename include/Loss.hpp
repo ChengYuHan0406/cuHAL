@@ -48,6 +48,27 @@ public:
   }
 };
 
+class LogitLoss : public Loss {
+public:
+  float compute(const nc::NdArray<float>& output,
+                const nc::NdArray<float>& label,
+                const nc::NdArray<float>& weight = nc::empty<float>(0, 0)) const {
+    PROLOGUE
+    auto p = 1.0f / (1.0f + nc::exp(-output));
+    auto res = -nc::mean(label * nc::log(p) + (1.0f - label) * nc::log(1.0f - p))(0, 0);
+    return res;
+  }
+
+  nc::NdArray<float> grad(const nc::NdArray<float>& output,
+                          const nc::NdArray<float>& label,
+                          const nc::NdArray<float>& weight = nc::empty<float>(0, 0)) const {
+    PROLOGUE
+    auto p = 1.0f / (1.0f + nc::exp(-output));
+    auto res = (p - label) / (float)len;
+    return res.reshape(1, len);
+  }
+};
+
 class WMAELoss : public Loss {
 public:
   float compute(const nc::NdArray<float>& output,
