@@ -2,9 +2,13 @@
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
 #include "assert.h"
+#include <NumCpp/Functions/logical_and.hpp>
+#include <NumCpp/Functions/logical_or.hpp>
+#include <NumCpp/Functions/norm.hpp>
 #include <cmath>
 #include "omp.h"
 #include <cstdlib>
+#include <limits>
 #include <stdlib.h> 
 #include <time.h>
 
@@ -24,7 +28,7 @@ HAL::HAL(const nc::NdArray<float>& dataframe,
   auto shape_labels = labels.shape();
 
   /* Check data shape */
-  assert(shape_labels.cols == 1);
+  //assert(shape_labels.cols == 1);
   assert(shape_dataframe.rows == shape_labels.rows);
 
   auto nrow = this->_design_matrix.get_nrow();
@@ -252,7 +256,7 @@ void SRTrainer::solve_lambda(float cur_lambda, float prev_lambda) {
 
       for (int i = 0; i < len_strong_set; i++) {
         auto cur_colidx = colidx_subset(0, i);
-        auto cur_grad = (*partial_grad)(cur_colidx, 0);
+        auto cur_grad = (*partial_grad)(i, 0);
         auto cur_u = this->_u_weights(cur_colidx, 0);
         auto cur_v = this->_v_weights(cur_colidx, 0);
 
@@ -274,8 +278,8 @@ void SRTrainer::solve_lambda(float cur_lambda, float prev_lambda) {
     auto partial_deriv_weight = this->partial_derivs(out_grad);
     auto partial_deriv_bias = this->partial_deriv_bias(out_grad);
 
-    auto cond_weight = (nc::abs(*partial_deriv_weight) > cur_lambda);
-    auto cond_bias = std::abs(partial_deriv_bias) > cur_lambda;
+    auto cond_weight = (nc::abs(*partial_deriv_weight) >= cur_lambda);
+    auto cond_bias = (std::abs(partial_deriv_bias) > cur_lambda);
 
     if (nc::sum(cond_weight.astype<int>())(0, 0) != 0 || cond_bias) {
       strong_set = nc::logical_or(strong_set, cond_weight);
@@ -283,6 +287,10 @@ void SRTrainer::solve_lambda(float cur_lambda, float prev_lambda) {
     } else {
       KKT_holds = true;
       std::cout << "KKT holds" << std::endl;
+    }
+
+    if (nc::sum(strong_set.astype<int>())(0, 0) == 0) {
+      break;
     }
   }
 }

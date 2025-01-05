@@ -214,7 +214,7 @@ DesignMatrix::DesignMatrix(const nc::NdArray<float> &dataframe,
   this->_allocate_cudamem();
 
   if (reduce_epsilon != -1) {
-    std::cout << "Reducing Basis.." << std::endl; 
+    std::cout << "Reducing Basis..." << std::endl; 
     this->reduce_basis(reduce_epsilon);
   }
 
