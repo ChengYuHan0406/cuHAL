@@ -19,6 +19,7 @@ public:
   void set_bias(const float new_bias);
   const nc::NdArray<float>& weights() const { return this->_weights; }
   float bias() const { return this->_bias; }
+  void save_model(const std::string& filename) const;
 private:
   const nc::NdArray<float> _labels; // Denoted by 'y'
   const DesignMatrix _design_matrix; // Denoted by 'A'

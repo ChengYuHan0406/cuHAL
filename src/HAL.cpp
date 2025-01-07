@@ -2,15 +2,13 @@
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
 #include "assert.h"
-#include <NumCpp/Functions/logical_and.hpp>
-#include <NumCpp/Functions/logical_or.hpp>
-#include <NumCpp/Functions/norm.hpp>
 #include <cmath>
 #include "omp.h"
 #include <cstdlib>
 #include <limits>
 #include <stdlib.h> 
 #include <time.h>
+#include "nlohmann/json.hpp"
 
 std::unique_ptr<nc::NdArray<float>> batch_binspmv(BatchedDesignMatrix& A, const nc::NdArray<float>& x);
 
@@ -51,6 +49,36 @@ void HAL::set_weights(const nc::NdArray<float>& new_weights) {
 }
 void HAL::set_bias(const float new_bias) {
   this->_bias = new_bias;
+}
+
+void HAL::save_model(const std::string& filename) const {
+  nlohmann::json json; 
+  const auto& df = this->design_matrix().dataframe();
+  auto& col_indices = this->_design_matrix.ColIndices;
+  auto ncol = col_indices.size(); 
+
+  json["bias"] = this->_bias;
+
+  for (int i = 0; i < ncol; i++) {
+    float cur_weight = this->_weights(i, 0); 
+    if (cur_weight != 0) {
+      auto &cur_col = col_indices[i];
+      auto &interact = cur_col.interaction;
+      auto sample_idx = cur_col.sample_idx;
+
+      std::vector<float> thres;
+      for (auto c : interact) {
+        thres.push_back(df(sample_idx, c));
+      }
+
+      json["weight"].push_back(cur_weight);
+      json["interaction"].push_back(interact);
+      json["thres"].push_back(thres);
+    }
+  }
+
+  std::ofstream file(filename);
+  file << json << std::endl;
 }
 
 float _soft_threshold(float w, float lamb, float step_size) {
@@ -203,6 +231,8 @@ void SRTrainer::run(const nc::NdArray<float>& val_df,
       best_weights = this->_hal.weights();
       best_bias = this->_hal.bias();
       best_lambda = cur_lambda;
+
+      this->_hal.save_model("best_model.json");
     }
 
     prev_lambda = cur_lambda;

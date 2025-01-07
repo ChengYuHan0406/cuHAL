@@ -1,18 +1,8 @@
 #include "BatchedDesignMatrix.hpp"
 #include "DesignMatrix.hpp"
 #include <NumCpp.hpp>
-#include <NumCpp/Core/Enums.hpp>
-#include <NumCpp/Core/Slice.hpp>
-#include <NumCpp/Functions/dot.hpp>
-#include <NumCpp/Functions/norm.hpp>
-#include <NumCpp/Functions/ones.hpp>
-#include <NumCpp/Functions/stack.hpp>
-#include <NumCpp/Functions/sum.hpp>
-#include <NumCpp/Random/randInt.hpp>
-#include <NumCpp/Random/randN.hpp>
 #include <cmath>
 #include <gtest/gtest.h>
-#include <iostream>
 #include <memory>
 
 nc::NdArray<bool> static _create_block() {
@@ -153,6 +143,35 @@ TEST(DesignMatrixTest, RandomDfgetBatch) {
   }
 }
 
+TEST(DesignMatrixTest, getPredDesignMatrix) {
+  size_t max_order = 3;
+  const size_t nrow = 100;
+  const size_t test_nrow = 20;
+  const size_t ncol = 50;
+  auto df = nc::random::randN<float>({nrow, ncol});
+  auto test_df = nc::random::randN<float>({test_nrow, ncol});
+  auto design_matrix = DesignMatrix(df, max_order);
+  auto pred_design_matrix = design_matrix.getPredDesignMatrix(test_df);
+  auto realized_pred_design_matrix =
+      pred_design_matrix->getBatch(0, test_nrow)->full();
+
+  auto& col_indices = design_matrix.ColIndices;
+  for (int r = 0; r < test_nrow; r++) {
+    for (int c = 0; c < design_matrix.get_ncol(); c++) {
+      auto& cur_col = col_indices[c];
+      auto& interact = cur_col.interaction;
+      auto sample_idx = cur_col.sample_idx;
+
+      bool cur_val = true;
+      for (auto x : interact) {
+        cur_val &= (test_df(r, x) >= df(sample_idx, x));
+      }
+      EXPECT_EQ(cur_val, (*realized_pred_design_matrix)(r, c));
+    }
+  }
+
+}
+
 TEST(DesignMatrixTest, getBatchPred) {
   size_t max_order = 2;
   size_t nrow = 3;
@@ -204,44 +223,6 @@ TEST(DesignMatrixTest, RandomDfgetBatchPred) {
     }
   }
 }
-
-/*
-TEST(DesignMatrixTest, BatchedDesignMatrix) {
-  size_t max_order = 2;
-  size_t nrow = 3;
-  size_t ncol = 3;
-  auto df = nc::arange<int>(0, 9).reshape(nrow, ncol);
-  auto design_matrix = DesignMatrix(df.astype<float>(), max_order);
-  auto expected_DesignMatrix = nc::stack({_create_block(),
-_create_block(),_create_block(), _create_block(),
-_create_block(),_create_block()}, nc::Axis::COL);
-
-  // batch_size = 1
-  auto batched_design_matrix_1 = BatchedDesignMatrix(design_matrix, 1);
-  EXPECT_EQ(batched_design_matrix_1.len(), 3);
-  int err1_0 = nc::sum(*batched_design_matrix_1.get(0)->full() -
-expected_DesignMatrix(0, nc::Slice(0, 18)))(0, 0); int err1_1 =
-nc::sum(*batched_design_matrix_1.get(1)->full() - expected_DesignMatrix(1,
-nc::Slice(0, 18)))(0, 0); int err1_2 =
-nc::sum(*batched_design_matrix_1.get(2)->full() - expected_DesignMatrix(2,
-nc::Slice(0, 18)))(0, 0); EXPECT_EQ(err1_0, 0); EXPECT_EQ(err1_1, 0);
-  EXPECT_EQ(err1_2, 0);
-
-  // batch_size = 2
-  auto batched_design_matrix_2 = BatchedDesignMatrix(design_matrix, 2);
-  EXPECT_EQ(batched_design_matrix_2.len(), 2);
-  int err2_0 = nc::sum(*batched_design_matrix_2.get(0)->full() -
-expected_DesignMatrix(nc::Slice(0, 2), nc::Slice(0, 18)))(0, 0); int err2_1 =
-nc::sum(*batched_design_matrix_2.get(1)->full() - expected_DesignMatrix(2,
-nc::Slice(0, 18)))(0, 0); EXPECT_EQ(err2_0, 0); EXPECT_EQ(err2_1, 0);
-
-  // batch_size = 3
-  auto batched_design_matrix_3 = BatchedDesignMatrix(design_matrix, 3);
-  EXPECT_EQ(batched_design_matrix_3.len(), 1);
-  int err3 = nc::sum(*batched_design_matrix_3.get(0)->full() -
-expected_DesignMatrix)(0, 0);
-}
-*/
 
 TEST(DesignMatrixTest, getRegion) {
   size_t max_order = 3;
@@ -344,14 +325,15 @@ TEST(DesignMatrixTest, fusedRegionMVPred) {
 
   auto rand_vec =
       nc::random::randN<float>({(uint32_t)design_matrix.get_ncol(), 1});
-  auto bdm = BatchedDesignMatrix(*pred_design_matrix, 100);
+  auto realized_pred_design_matrix =
+      pred_design_matrix->getBatch(0, test_nrow)->full();
 
-  auto expected = batch_binspmv(bdm, rand_vec);
+  auto expected = nc::dot(realized_pred_design_matrix->astype<float>(), rand_vec);
   auto res = pred_design_matrix->fusedRegionMV(
       0, pred_design_matrix->get_nrow(), 0, pred_design_matrix->get_ncol(),
       rand_vec);
 
-  auto err = nc::norm(*res - *expected)(0, 0) / nc::norm(*expected)(0, 0);
+  auto err = nc::norm(*res - expected)(0, 0) / nc::norm(expected)(0, 0);
   EXPECT_LE(err, 1e-5);
 }
 
