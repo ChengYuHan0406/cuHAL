@@ -1,12 +1,5 @@
 #pragma once
 #include <NumCpp.hpp>
-#include <NumCpp/Core/Enums.hpp>
-#include <NumCpp/Functions/argsort.hpp>
-#include <NumCpp/Functions/empty.hpp>
-#include <NumCpp/Functions/exp.hpp>
-#include <NumCpp/Functions/log.hpp>
-#include <NumCpp/Functions/max.hpp>
-#include <NumCpp/Functions/median.hpp>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
