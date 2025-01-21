@@ -81,7 +81,7 @@ curl -fsSL https://xmake.io/shget.text | bash
 ```
 With all dependencies installed, clone the *cuHAL* repository and build it
 ```
-git clone git@github.com:ChengYuHan0406/cuHAL.git
+git clone https://github.com/ChengYuHan0406/cuHAL.git
 cd cuHAL
 xmake
 ```
