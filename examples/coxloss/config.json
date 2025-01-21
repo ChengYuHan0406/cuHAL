@@ -1,0 +1,16 @@
+  {
+    "num_features": 10, 
+    "train_size": 1000,
+    "val_size": 500,
+    "label_dim": 2,
+    "loss": "coxloss",
+    "path_X_train": "../examples/coxloss/X_train.csv",
+    "path_y_train": "../examples/coxloss/y_train.csv",
+    "path_X_val": "../examples/coxloss/X_val.csv",
+    "path_y_val": "../examples/coxloss/y_val.csv",
+    "max_order": 1,
+    "sample_ratio": 0.1,
+    "reduce_epsilon": 0.5,
+    "step_size": 0.0005,
+    "max_iter": 500
+  }

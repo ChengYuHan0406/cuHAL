@@ -1,0 +1,17 @@
+  {
+    "num_features": 10,
+    "train_size": 1000,
+    "val_size": 500,
+    "loss": "wmae",
+    "path_X_train": "../examples/wmae/X_train.csv",
+    "path_y_train": "../examples/wmae/y_train.csv",
+    "path_X_val": "../examples/wmae/X_val.csv",
+    "path_y_val": "../examples/wmae/y_val.csv",
+    "path_weight_train": "../examples/wmae/weight_train.csv",
+    "path_weight_val": "../examples/wmae/weight_val.csv",
+    "max_order": 2,
+    "sample_ratio": 0.5,
+    "reduce_epsilon": 0.1,
+    "step_size": 0.001,
+    "max_iter": 500
+  }
