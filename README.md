@@ -1,3 +1,7 @@
+<div align=center>
+<img src="https://github.com/ChengYuHan0406/cuHAL/blob/main/logo.png" width="200" height="200">
+</div>
+
 # What is cuHAL
 Roughly Speaking, **cuHAL** is a CUDA-accelerated implementation of the nonparametric regression method known as [*Highly Adaptive Lasso (HAL)*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5662030/).
 
