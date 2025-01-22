@@ -34,7 +34,7 @@ for c in range(model_size):
     len_interact = len(cur_interact)
     key = ""
     for i in range(len_interact):
-        key += f"I[{name_map[i]} >= {cur_thres[i]}]"
+        key += f"I[{name_map[cur_interact[i]]} >= {cur_thres[i]}]"
         if (i < len_interact - 1):
             key += " * "
 
