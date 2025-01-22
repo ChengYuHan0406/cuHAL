@@ -60,6 +60,15 @@ admittedly, based on trial and error and still suffers from slow convergence on 
 Another notable feature of *cuHAL* is its support for user-defined loss functions with minimal effort. To add a custom loss function, users need only implement it in `Loss.hpp`
 and register it in `LossRegister.hpp`. Once registered, the custom loss can be specified in the configuration.
 
+# System Requirements
+
+This library has been tested and is primarily supported on the following system configuration:
+- **Operating System:** Ubuntu 24.04.1 LTS (including support for [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install))
+- **Compiler:** GCC 13.3.0
+- **Hardware:** GeForce RTX 4060, GeForce RTX 2080
+  
+**Note:** This library has been tested exclusively on the specified system configuration. It may work in other environments or setups, but functionality and performance cannot be guaranteed or formally supported.
+
 # Install Dependencies & Build cuHAL
 Install [nvcc](https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/), the CUDA compiler driver required to compile CUDA programs:
 ```
